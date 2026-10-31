@@ -2,43 +2,75 @@ import AppKit
 
 @MainActor
 final class StatusMenu: NSObject {
-    private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-    private let status = NSMenuItem(title: "Starting", action: nil, keyEquivalent: "")
-    private let pause = NSMenuItem(title: "Pause", action: nil, keyEquivalent: "")
-    private let permission = NSMenuItem(title: "Allow Accessibility…", action: nil, keyEquivalent: "")
-    private let onToggle: () -> Void
-    private let onPermission: () -> Void
-    init(onToggle: @escaping () -> Void, onPermission: @escaping () -> Void) {
-        self.onToggle = onToggle
-        self.onPermission = onPermission
+    private let statusItem: NSStatusItem
+    private let stateItem = NSMenuItem(title: "Starting…", action: nil, keyEquivalent: "")
+    private let pauseItem = NSMenuItem(title: "Pause", action: nil, keyEquivalent: "")
+    private let permissionItem = NSMenuItem(title: "Grant Accessibility…", action: nil, keyEquivalent: "")
+    private let onTogglePause: () -> Void
+    private let onQuit: () -> Void
+    private let onRequestPermission: () -> Void
+
+    init(
+        onTogglePause: @escaping () -> Void,
+        onQuit: @escaping () -> Void,
+        onRequestPermission: @escaping () -> Void
+    ) {
+        self.onTogglePause = onTogglePause
+        self.onQuit = onQuit
+        self.onRequestPermission = onRequestPermission
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
-        let image = NSImage(systemSymbolName: "speaker.wave.2", accessibilityDescription: "EdgeControl")
-        image?.isTemplate = true
-        item.button?.image = image
-        item.button?.toolTip = "EdgeControl"
+
+        let image = NSImage(size: NSSize(width: 22, height: 18), flipped: false) { _ in
+            NSColor.black.setStroke()
+            let outline = NSBezierPath(roundedRect: NSRect(x: 3, y: 3, width: 16, height: 12), xRadius: 3, yRadius: 3)
+            outline.lineWidth = 1.3
+            outline.stroke()
+            let edges = NSBezierPath()
+            edges.lineWidth = 2.3
+            edges.lineCapStyle = .round
+            edges.move(to: NSPoint(x: 7, y: 3))
+            edges.line(to: NSPoint(x: 15, y: 3))
+            edges.move(to: NSPoint(x: 19, y: 7))
+            edges.line(to: NSPoint(x: 19, y: 11))
+            edges.stroke()
+            return true
+        }
+        image.isTemplate = true
+        statusItem.button?.image = image
+        statusItem.button?.toolTip = "EdgeControl"
+        statusItem.button?.setAccessibilityLabel("EdgeControl")
+
         let menu = NSMenu()
         menu.autoenablesItems = false
-        status.isEnabled = false
-        menu.addItem(status)
-        permission.target = self
-        permission.action = #selector(requestPermission)
-        menu.addItem(permission)
+        stateItem.isEnabled = false
+        menu.addItem(stateItem)
+        permissionItem.target = self
+        permissionItem.action = #selector(requestPermission)
+        permissionItem.isHidden = true
+        menu.addItem(permissionItem)
         menu.addItem(.separator())
-        pause.target = self
-        pause.action = #selector(togglePause)
-        menu.addItem(pause)
-        let quit = NSMenuItem(title: "Quit", action: #selector(quitApp), keyEquivalent: "q")
-        quit.target = self
-        menu.addItem(quit)
-        item.menu = menu
+        pauseItem.target = self
+        pauseItem.action = #selector(togglePause)
+        menu.addItem(pauseItem)
+        let quitItem = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
+        quitItem.target = self
+        menu.addItem(quitItem)
+        statusItem.menu = menu
     }
-    func update(_ title: String, paused: Bool) {
-        status.title = title
-        pause.title = paused ? "Resume" : "Pause"
-        permission.isHidden = CursorCapture.hasPermission
+
+    func update(status: String, isPaused: Bool, needsPermission: Bool) {
+        stateItem.title = status
+        pauseItem.title = isPaused ? "Resume" : "Pause"
+        permissionItem.isHidden = !needsPermission
+        statusItem.button?.toolTip = "EdgeControl: \(status)"
     }
-    func remove() { NSStatusBar.system.removeStatusItem(item) }
-    @objc private func requestPermission() { onPermission() }
-    @objc private func togglePause() { onToggle() }
-    @objc private func quitApp() { NSApplication.shared.terminate(nil) }
+
+    func remove() {
+        NSStatusBar.system.removeStatusItem(statusItem)
+    }
+
+    @objc private func togglePause() { onTogglePause() }
+    @objc private func quit() { onQuit() }
+    @objc private func requestPermission() { onRequestPermission() }
 }

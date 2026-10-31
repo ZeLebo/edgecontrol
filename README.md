@@ -1,12 +1,12 @@
-# EdgeControl v1.0
+# EdgeControl v1.1.0
 
-A native macOS menu bar app for absolute volume control along the bottom edge of the built-in trackpad.
+Control volume and built-in display brightness from the edges of the built-in trackpad.
 
-Slide one finger inside the bottom 5% of the trackpad. Left means 0%, centre 50%, right 100%. A stationary touch does not change volume. The cursor stays still during adjustment. Lift all fingers before the next gesture.
+The bottom 5% controls volume from left to right. The right 5% controls brightness from bottom to top. Slide to set an absolute level from 0% to 100%. A stationary touch does not change a level. The cursor stays still during adjustment.
 
 ## Build
 
-Requires macOS, an Apple Silicon Mac with a built-in trackpad, and Swift 6.2 or newer.
+Requires macOS 14 or newer, an Apple Silicon Mac with a built-in trackpad, and Swift 6.2 or newer.
 
 ```sh
 swift test
@@ -14,10 +14,12 @@ swift test
 open build/EdgeControl.app
 ```
 
-Grant Accessibility from the menu and select Resume. Pause and Quit are available from the menu bar. A device without adjustable system volume is reported as unsupported.
+Grant Accessibility from the menu and select Resume. Pause and Quit are available from the menu bar.
+
+Run `build/EdgeControl.app/Contents/MacOS/EdgeControl --diagnose` to inspect gesture targets without changing system levels.
 
 ## Implementation
 
-Uses AppKit, CoreAudio, CoreGraphics and the private MultitouchSupport framework. There are no third-party dependencies. The local build is ad-hoc signed, not notarized. Private APIs may change after a macOS update.
+Uses AppKit, CoreAudio, CoreGraphics and the private MultitouchSupport and DisplayServices frameworks. There are no third-party dependencies. The local build is ad-hoc signed, not notarized. Private APIs may change after a macOS update. Unsupported outputs are reported in the menu.
 
-Automated tests do not capture live input or change system volume. Build outputs stay outside source control.
+Automated tests do not capture live input or change system levels. Build outputs stay outside source control.

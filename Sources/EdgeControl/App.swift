@@ -1,14 +1,21 @@
 import AppKit
+import Darwin
 
 @main
 enum EdgeControlMain {
-    @MainActor static func main() {
-        if CommandLine.arguments.dropFirst().contains("--help") {
-            print("EdgeControl: absolute volume on the bottom trackpad edge")
+    @MainActor
+    static func main() {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        if arguments == ["--help"] {
+            print("Usage: EdgeControl [--diagnose]\n--diagnose: show samples and target levels without changing volume or brightness.")
             return
         }
+        guard arguments.isEmpty || arguments == ["--diagnose"] else {
+            FileHandle.standardError.write(Data("Usage: EdgeControl [--diagnose]\n".utf8))
+            exit(2)
+        }
         let app = NSApplication.shared
-        let controller = VolumeApplication()
+        let controller = ApplicationController(diagnostic: arguments == ["--diagnose"])
         app.setActivationPolicy(.accessory)
         app.delegate = controller
         withExtendedLifetime(controller) { app.run() }
@@ -16,112 +23,231 @@ enum EdgeControlMain {
 }
 
 @MainActor
-final class VolumeApplication: NSObject, NSApplicationDelegate {
+final class ApplicationController: NSObject, NSApplicationDelegate {
     private let input = TrackpadInput()
     private let cursor = CursorCapture()
     private let audio = AudioOutput()
-    private var gesture = VolumeGesture()
+    private let brightness = BrightnessOutput()
+    private var gesture = EdgeGesture()
+    private var activeAction: EdgeAction?
+    private var controlErrors: [EdgeAction: String] = [:]
     private var menu: StatusMenu?
-    private var paused = false
-    private var suspended = Set<String>()
-    private var failure: String?
+    private let diagnostic: Bool
+    private var isPaused = false
+    private var errorMessage: String?
+    private var suspensions: Set<String> = []
     private var acceptedAfter = Double.infinity
-    private var lastFrame: Double?
+    private var lastFrameAt: Double?
+    private var lastDiagnosticAt = 0.0
     private var watchdog: Timer?
 
+    init(diagnostic: Bool) {
+        self.diagnostic = diagnostic
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
-        menu = StatusMenu(onToggle: { [weak self] in self?.togglePause() }, onPermission: { [weak self] in
-            CursorCapture.requestPermission()
-            if CursorCapture.hasPermission { self?.paused = false; self?.start() }
-        })
+        menu = StatusMenu(
+            onTogglePause: { [weak self] in self?.togglePause() },
+            onQuit: { NSApplication.shared.terminate(nil) },
+            onRequestPermission: { [weak self] in self?.requestPermission() }
+        )
         input.onFrame = { [weak self] frame in self?.handle(frame) }
         input.onError = { [weak self] message in self?.fail(message) }
         cursor.onError = { [weak self] message in self?.fail(message) }
-        audio.onChange = { [weak self] in self?.start() }
+        audio.onChange = { [weak self] in self?.outputChanged(.volume) }
+        brightness.onChange = { [weak self] in self?.outputChanged(.brightness) }
+        observeSession()
+        let timer = Timer(timeInterval: 0.1, target: self, selector: #selector(checkInput), userInfo: nil, repeats: true)
+        RunLoop.main.add(timer, forMode: .common)
+        watchdog = timer
+        if !diagnostic {
+            // An unavailable output must not disable the other action at startup.
+            do { try audio.start() } catch { controlErrors[.volume] = error.localizedDescription }
+            do { try brightness.start() } catch { controlErrors[.brightness] = error.localizedDescription }
+        }
+        startInput()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        watchdog?.invalidate()
+        watchdog = nil
+        stopInput()
+        audio.stop()
+        brightness.stop()
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
+        DistributedNotificationCenter.default().removeObserver(self)
+        menu?.remove()
+    }
+
+    private func startInput() {
+        stopInput()
+        guard !isPaused, suspensions.isEmpty else {
+            updateMenu()
+            return
+        }
+        do {
+            guard CursorCapture.hasPermission else {
+                fail("Accessibility permission is required")
+                return
+            }
+            try cursor.start()
+            acceptedAfter = ProcessInfo.processInfo.systemUptime
+            try input.start()
+            errorMessage = nil
+            updateMenu()
+        } catch {
+            fail(error.localizedDescription)
+        }
+    }
+
+    private func stopInput() {
+        acceptedAfter = .infinity
+        gesture.reset()
+        cursor.stop()
+        input.stop()
+        activeAction = nil
+        lastFrameAt = nil
+    }
+
+    private func handle(_ frame: TrackpadFrame) {
+        guard !isPaused, suspensions.isEmpty, input.isRunning,
+              frame.timestamp >= acceptedAfter else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        // Queued frames must never apply an old gesture after the app stalls.
+        guard frame.timestamp.isFinite, frame.timestamp <= now,
+              now - frame.timestamp < 0.5 else {
+            fail("Trackpad input is delayed; resume the app")
+            return
+        }
+        lastFrameAt = now
+        let update = gesture.process(frame, settings: EdgeSettings.defaults)
+        switch update {
+        case .inactive:
+            cursor.release()
+            activeAction = nil
+        case let .active(_, action, percent):
+            do {
+                if activeAction == nil {
+                    if !diagnostic {
+                        switch action {
+                        case .volume: try audio.refresh()
+                        case .brightness: try brightness.refresh()
+                        case .disabled: throw ApplicationControlError("This edge is disabled")
+                        }
+                    }
+                    try cursor.acquire()
+                    activeAction = action
+                }
+                if let percent {
+                    if diagnostic {
+                        print("action=\(action.rawValue) target=\(percent)% (system levels unchanged)")
+                    } else {
+                        switch action {
+                        case .volume: try audio.setVolume(percent: percent)
+                        case .brightness: try brightness.setBrightness(percent: percent)
+                        case .disabled: throw ApplicationControlError("This edge is disabled")
+                        }
+                        controlErrors[action] = nil
+                        updateMenu()
+                    }
+                }
+            } catch {
+                fail(error.localizedDescription)
+                return
+            }
+        }
+        if diagnostic, now - lastDiagnosticAt >= 0.1 {
+            let positions = frame.contacts.map {
+                String(format: "id=%d x=%.4f y=%.4f", $0.id, $0.x, $0.y)
+            }.joined(separator: "; ")
+            print("contacts=\(frame.contacts.count) active=\(update.isActive) \(positions)")
+            lastDiagnosticAt = now
+        }
+    }
+
+    private func outputChanged(_ action: EdgeAction) {
+        controlErrors[action] = nil
+        if activeAction == nil || activeAction == action { startInput() }
+        else { updateMenu() }
+    }
+
+    @objc private func checkInput() {
+        guard cursor.isCaptured, let lastFrameAt else { return }
+        if ProcessInfo.processInfo.systemUptime - lastFrameAt >= 0.5 {
+            fail("Trackpad input was lost; resume the app")
+        }
+    }
+
+    private func togglePause() {
+        isPaused.toggle()
+        if isPaused {
+            errorMessage = nil
+            stopInput()
+            updateMenu()
+        } else {
+            startInput()
+        }
+    }
+
+    private func fail(_ message: String) {
+        stopInput()
+        isPaused = true
+        errorMessage = message
+        updateMenu()
+        if diagnostic { print("error: \(message)") }
+    }
+
+    private func requestPermission() {
+        CursorCapture.requestPermission()
+        if CursorCapture.hasPermission {
+            isPaused = false
+            startInput()
+        } else {
+            updateMenu()
+        }
+    }
+
+    private func updateMenu() {
+        let unavailable = EdgeAction.allCases.first { action in
+            action != .disabled && controlErrors[action] != nil &&
+                TrackpadEdge.allCases.contains { EdgeSettings.defaults[$0] == action }
+        }
+        let warning = unavailable.flatMap { action in controlErrors[action].map { "\(action.title): \($0)" } }
+        let status = errorMessage ?? (!suspensions.isEmpty ? "Session suspended" :
+            (isPaused ? "Paused" : (diagnostic ? "Diagnostic: system levels unchanged" : (warning ?? "Ready"))))
+        menu?.update(status: status, isPaused: isPaused, needsPermission: !CursorCapture.hasPermission)
+    }
+
+    private func observeSession() {
         let center = NSWorkspace.shared.notificationCenter
         for name in [NSWorkspace.willSleepNotification, NSWorkspace.didWakeNotification,
                      NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
             center.addObserver(self, selector: #selector(sessionChanged(_:)), name: name, object: nil)
         }
+        let distributed = DistributedNotificationCenter.default()
         for name in ["com.apple.screenIsLocked", "com.apple.screenIsUnlocked"] {
-            DistributedNotificationCenter.default().addObserver(self, selector: #selector(sessionChanged(_:)), name: .init(name), object: nil)
-        }
-        let timer = Timer(timeInterval: 0.1, target: self, selector: #selector(checkInput), userInfo: nil, repeats: true)
-        RunLoop.main.add(timer, forMode: .common)
-        watchdog = timer
-        do { try audio.start(); start() } catch { fail(error.localizedDescription) }
-    }
-    func applicationWillTerminate(_ notification: Notification) {
-        watchdog?.invalidate()
-        stop()
-        audio.stop()
-        NSWorkspace.shared.notificationCenter.removeObserver(self)
-        DistributedNotificationCenter.default().removeObserver(self)
-        menu?.remove()
-    }
-    private func start() {
-        stop()
-        guard !paused, suspended.isEmpty else { updateMenu(); return }
-        do {
-            guard CursorCapture.hasPermission else { fail("Accessibility permission is required"); return }
-            try audio.refresh()
-            try cursor.start()
-            acceptedAfter = ProcessInfo.processInfo.systemUptime
-            try input.start()
-            failure = nil
-            updateMenu()
-        } catch { fail(error.localizedDescription) }
-    }
-    private func stop() {
-        acceptedAfter = .infinity
-        gesture.reset()
-        cursor.stop()
-        input.stop()
-        lastFrame = nil
-    }
-    private func handle(_ frame: TrackpadFrame) {
-        guard !paused, suspended.isEmpty, input.isRunning, frame.timestamp >= acceptedAfter else { return }
-        let now = ProcessInfo.processInfo.systemUptime
-        guard frame.timestamp.isFinite, frame.timestamp <= now, now - frame.timestamp < 0.5 else {
-            fail("Trackpad data arrived too late; resume to retry")
-            return
-        }
-        lastFrame = now
-        let update = gesture.process(frame)
-        guard update.isActive else { cursor.release(); return }
-        do {
-            if !cursor.isCaptured { try cursor.acquire() }
-            if let percent = update.percent { try audio.setVolume(percent: percent) }
-        } catch { fail(error.localizedDescription) }
-    }
-    @objc private func checkInput() {
-        if cursor.isCaptured, let lastFrame, ProcessInfo.processInfo.systemUptime - lastFrame >= 0.5 {
-            fail("Trackpad signal was lost; resume to retry")
+            distributed.addObserver(self, selector: #selector(sessionChanged(_:)), name: .init(name), object: nil)
         }
     }
-    private func fail(_ message: String) {
-        stop()
-        failure = message
-        paused = true
-        updateMenu()
-    }
-    private func togglePause() {
-        paused.toggle()
-        if paused { failure = nil; stop(); updateMenu() } else { start() }
-    }
-    private func updateMenu() {
-        menu?.update(failure ?? (!suspended.isEmpty ? "Session suspended" : (paused ? "Paused" : "Ready")), paused: paused)
-    }
+
     @objc private func sessionChanged(_ notification: Notification) {
         switch notification.name {
-        case NSWorkspace.willSleepNotification: suspended.insert("sleep")
-        case NSWorkspace.didWakeNotification: suspended.remove("sleep")
-        case NSWorkspace.sessionDidResignActiveNotification: suspended.insert("session")
-        case NSWorkspace.sessionDidBecomeActiveNotification: suspended.remove("session")
-        case .init("com.apple.screenIsLocked"): suspended.insert("lock")
-        case .init("com.apple.screenIsUnlocked"): suspended.remove("lock")
+        case NSWorkspace.willSleepNotification: suspensions.insert("sleep")
+        case NSWorkspace.didWakeNotification: suspensions.remove("sleep")
+        case NSWorkspace.sessionDidResignActiveNotification: suspensions.insert("session")
+        case NSWorkspace.sessionDidBecomeActiveNotification: suspensions.remove("session")
+        case .init("com.apple.screenIsLocked"): suspensions.insert("lock")
+        case .init("com.apple.screenIsUnlocked"): suspensions.remove("lock")
         default: return
         }
-        start()
+        if suspensions.isEmpty { startInput() } else {
+            stopInput()
+            updateMenu()
+        }
     }
+}
+
+private struct ApplicationControlError: LocalizedError {
+    let errorDescription: String?
+    init(_ message: String) { errorDescription = message }
 }

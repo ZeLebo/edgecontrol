@@ -3,12 +3,18 @@ struct TrackpadContact: Sendable, Equatable {
     let x: Double
     let y: Double
 }
+
 struct TrackpadFrame: Sendable, Equatable {
+    /// Monotonic seconds, using the same clock as ProcessInfo.systemUptime.
     let timestamp: Double
     let contacts: [TrackpadContact]
 }
-struct GestureUpdate: Sendable, Equatable {
-    let isActive: Bool
-    let percent: Int?
-    static let inactive = GestureUpdate(isActive: false, percent: nil)
+
+enum GestureUpdate: Sendable, Equatable {
+    case inactive
+    case active(edge: TrackpadEdge, action: EdgeAction, percent: Int?)
+
+    var isActive: Bool {
+        if case .active = self { true } else { false }
+    }
 }
