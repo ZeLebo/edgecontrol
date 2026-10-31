@@ -39,9 +39,12 @@ enum EdgeControlMain {
         defer { defaults.removePersistentDomain(forName: domain) }
         let store = SettingsStore(defaults: defaults)
         let window = SettingsWindow(store: store)
+        let hud = LevelHUD()
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             app.appearance = NSAppearance(named: appearance)
             try window.renderPreview(to: directory.appendingPathComponent("settings-\(name).png"), appearance: appearance)
+            try hud.renderPreview(to: directory.appendingPathComponent("volume-\(name).png"), appearance: appearance)
+            try hud.renderPreview(to: directory.appendingPathComponent("brightness-\(name).png"), action: .brightness, appearance: appearance)
         }
         window.close()
         print("Previews saved: \(directory.path)")
@@ -55,6 +58,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private let audio = AudioOutput()
     private let brightness = BrightnessOutput()
     private let settings = SettingsStore()
+    private let hud = LevelHUD()
     private var gesture = EdgeGesture()
     private var settingsWindow: SettingsWindow?
     private var activeAction: EdgeAction?
@@ -136,6 +140,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         gesture.reset()
         cursor.stop()
         input.stop()
+        hud.hide()
         activeAction = nil
         lastFrameAt = nil
     }
@@ -156,6 +161,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         case .inactive:
             cursor.release()
             if activeAction != nil {
+                hud.finish()
                 activeAction = nil
             }
         case let .active(_, action, percent):
@@ -183,6 +189,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
                         controlErrors[action] = nil
                         updateMenu()
                     }
+                    hud.show(action: action, percent: percent, diagnostic: diagnostic)
                 }
             } catch {
                 fail(error.localizedDescription)

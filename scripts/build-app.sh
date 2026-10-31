@@ -11,6 +11,8 @@ binary_dir="$(swift build "$@" -c release --arch arm64 --show-bin-path --cache-p
 app_path="$PWD/build/EdgeControl.app"
 mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
 cp Resources/Info.plist "$app_path/Contents/Info.plist"
+swift scripts/build-icon.swift Resources/EdgeControlIcon.png .build/EdgeControl.icns
+cp .build/EdgeControl.icns "$app_path/Contents/Resources/EdgeControl.icns"
 # Replace the inode so an already running instance keeps its original executable.
 cp "$binary_dir/EdgeControl" "$app_path/Contents/MacOS/EdgeControl.new"
 # Remove build-toolchain search paths; retain system Swift runtime search paths.

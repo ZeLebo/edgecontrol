@@ -1,10 +1,12 @@
-# EdgeControl v1.2.0
+# EdgeControl v1.3.0
 
 Control volume and built-in display brightness from the edges of the built-in trackpad.
 
 The bottom 5% controls volume from left to right. The right 5% controls brightness from bottom to top. Slide to set an absolute level from 0% to 100%. A stationary touch does not change a level. The cursor stays still during adjustment.
 
 Open Settings from the menu bar to assign Volume, Brightness or Disabled to each of the four edges and adjust the active strip width from 3% to 15%. Settings save automatically.
+
+A floating indicator shows the active control and its level. The application icon is generated from the source PNG during the build.
 
 ## Build
 
