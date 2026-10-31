@@ -4,7 +4,7 @@ import Testing
 
 struct TrackpadInputTests {
     @Test func findsBuiltInTrackpadWhenOpaqueFlagIsFalse() throws {
-        // Regression: an internal trackpad may report an opaque=false surface.
+        // Read-only inventory on this Mac: builtIn=true, opaque=false, family=109, sensor=18x24.
         #expect(try builtInTrackpadIndex(in: [(isBuiltIn: true, isOpaqueSurface: false)]) == 0)
         #expect(try builtInTrackpadIndex(in: [
             (isBuiltIn: false, isOpaqueSurface: true),

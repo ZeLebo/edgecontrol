@@ -102,7 +102,6 @@ final class AudioOutput {
         }
     }
 
-    /// Reports the scalar level; per-channel outputs use their mean. Mute is separate.
     func readVolumePercent() throws -> Int {
         try requireCurrentDevice()
         var sum: Float = 0

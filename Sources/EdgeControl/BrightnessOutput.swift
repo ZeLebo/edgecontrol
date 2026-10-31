@@ -97,7 +97,7 @@ final class BrightnessOutput {
         var count: UInt32 = 0
         var status = CGGetOnlineDisplayList(0, nil, &count)
         guard status == .success else {
-            throw BrightnessOutputError("Could not list displays (CoreGraphics \(status.rawValue))")
+            throw BrightnessOutputError("Could not enumerate displays (CoreGraphics \(status.rawValue))")
         }
         var displays = [CGDirectDisplayID](repeating: 0, count: Int(count))
         status = CGGetOnlineDisplayList(count, &displays, &count)
@@ -127,7 +127,7 @@ func builtInDisplayID(
 ) throws -> CGDirectDisplayID {
     let candidates = displays.filter(\.isBuiltIn)
     guard candidates.count == 1, let selected = candidates.first else {
-        throw BrightnessOutputError(candidates.isEmpty ? "No built-in display found" : "Multiple built-in displays found")
+        throw BrightnessOutputError(candidates.isEmpty ? "Built-in display not found" : "Multiple built-in displays found")
     }
     guard selected.isActive else { throw BrightnessOutputError("The built-in display is inactive") }
     return selected.id
@@ -186,7 +186,7 @@ private final class DisplayServicesAPI {
     init() throws {
         let path = try systemPrivateFrameworkPath("DisplayServices")
         guard let library = dlopen(path, RTLD_NOW | RTLD_LOCAL) else {
-            let detail = dlerror().map { String(cString: $0) } ?? "unknown dlopen error"
+            let detail = dlerror().map { String(cString: $0) } ?? "unknown dynamic loading error"
             throw BrightnessOutputError("DisplayServices is unavailable: \(detail)")
         }
         self.library = library

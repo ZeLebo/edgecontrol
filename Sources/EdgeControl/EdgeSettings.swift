@@ -7,12 +7,14 @@ enum TrackpadEdge: String, Codable, CaseIterable, Sendable {
 }
 
 enum EdgeAction: String, Codable, CaseIterable, Sendable {
-    case disabled, volume, brightness
+    case disabled, volume, brightness, tracks, seek
     var title: String {
         switch self {
         case .disabled: "Disabled"
         case .volume: "Volume"
         case .brightness: "Brightness"
+        case .tracks: "Track Navigation"
+        case .seek: "Seek"
         }
     }
     var symbol: String {
@@ -20,6 +22,8 @@ enum EdgeAction: String, Codable, CaseIterable, Sendable {
         case .disabled: "minus"
         case .volume: "speaker.wave.2.fill"
         case .brightness: "sun.max.fill"
+        case .tracks: "forward.end.fill"
+        case .seek: "goforward.10"
         }
     }
     var isLevel: Bool { self == .volume || self == .brightness }
@@ -34,7 +38,9 @@ struct EdgeConfiguration: Codable, Equatable, Sendable {
     var action: EdgeAction = .disabled
     var mode: AdjustmentMode = .absolute
     var sensitivity: Double = 1
+    var effectiveMode: AdjustmentMode { action.isLevel ? mode : .relative }
     var isValid: Bool { sensitivity.isFinite && (0.25...3).contains(sensitivity) }
+
 }
 
 struct EdgeSettings: Codable, Equatable, Sendable {
@@ -70,11 +76,8 @@ struct EdgeSettings: Codable, Equatable, Sendable {
     }
 }
 
-// Existing v3 records predate the haptics preference. Other fields remain required.
 extension EdgeSettings {
-    private enum CodingKeys: String, CodingKey {
-        case top, right, bottom, left, stripWidth, hapticsEnabled
-    }
+    private enum CodingKeys: String, CodingKey { case top, right, bottom, left, stripWidth, hapticsEnabled }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
@@ -83,7 +86,6 @@ extension EdgeSettings {
         bottom = try values.decode(EdgeConfiguration.self, forKey: .bottom)
         left = try values.decode(EdgeConfiguration.self, forKey: .left)
         stripWidth = try values.decode(Double.self, forKey: .stripWidth)
-        hapticsEnabled = values.contains(.hapticsEnabled)
-            ? try values.decode(Bool.self, forKey: .hapticsEnabled) : true
+        hapticsEnabled = try values.contains(.hapticsEnabled) ? values.decode(Bool.self, forKey: .hapticsEnabled) : true
     }
 }

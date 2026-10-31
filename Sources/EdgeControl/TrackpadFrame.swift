@@ -21,3 +21,4 @@ enum GestureUpdate: Sendable, Equatable {
     case active(edge: TrackpadEdge, action: EdgeAction, change: LevelChange?)
     var isActive: Bool { if case .active = self { true } else { false } }
 }
+

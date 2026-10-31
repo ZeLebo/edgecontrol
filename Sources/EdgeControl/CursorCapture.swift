@@ -20,7 +20,9 @@ final class CursorCapture {
     func start() throws {
         guard tap == nil else { return }
         guard Self.hasPermission else { throw CursorCaptureError.permission }
-        let eventTypes: [CGEventType] = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
+        let eventTypes: [CGEventType] = [
+            .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
+        ]
         let mask = eventTypes.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
         guard let newTap = CGEvent.tapCreate(
             tap: .cgSessionEventTap,
@@ -80,7 +82,7 @@ final class CursorCapture {
     private func shouldDrop(type: CGEventType) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             release()
-            onError?("Cursor event capture was disabled")
+            onError?("Cursor event interception was disabled")
             return false
         }
         // Runtime acceptance must confirm that dropping session motion also freezes the physical cursor.
@@ -96,8 +98,9 @@ private enum CursorCaptureError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .permission: "Accessibility permission is required"
-        case .unavailable: "Cursor event capture is unavailable"
-        case .buttonDown: "Release the mouse button before adjusting volume"
+        case .unavailable: "Cursor event interception is unavailable"
+        case .buttonDown: "Release the mouse button before adjusting a level"
         }
     }
 }
+

@@ -107,7 +107,7 @@ struct EdgeGesture {
         let coordinate = coordinate(of: contact, along: edge)
         state = .active(id: contact.id, edge: edge, configuration: configuration, coordinate: coordinate)
         let change: LevelChange?
-        switch configuration.mode {
+        switch configuration.effectiveMode {
         case .absolute:
             let percent = Int((100 * min(1, max(0, (coordinate - 0.03) / 0.94))).rounded())
             change = percent == lastPercent ? nil : .absolute(percent)

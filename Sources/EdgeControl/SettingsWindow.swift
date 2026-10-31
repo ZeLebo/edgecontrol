@@ -6,7 +6,7 @@ final class SettingsWindow: NSObject {
     private let window: NSWindow
     private var selectedEdge: TrackpadEdge = .bottom
     private let edgeChooser = NSSegmentedControl(labels: TrackpadEdge.allCases.map(\.title), trackingMode: .selectOne, target: nil, action: nil)
-    private let diagram = TrackpadDiagramView(frame: NSRect(x: 30, y: 278, width: 300, height: 196))
+    private let diagram = TrackpadDiagramView(frame: NSRect(x: 30, y: 168, width: 300, height: 196))
     private let edgeTitle = NSTextField(labelWithString: "Bottom Edge")
     private let actionPicker = NSPopUpButton()
     private let modePicker = NSPopUpButton()
@@ -20,7 +20,7 @@ final class SettingsWindow: NSObject {
 
     init(store: SettingsStore) {
         self.store = store
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 740, height: 610), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 740, height: 500), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         super.init()
         window.title = "EdgeControl Settings"
         window.isReleasedWhenClosed = false
@@ -50,11 +50,11 @@ final class SettingsWindow: NSObject {
     }
 
     private func buildContent() {
-        let content = SettingsBackgroundView(frame: NSRect(x: 0, y: 0, width: 740, height: 610))
+        let content = SettingsBackgroundView(frame: NSRect(x: 0, y: 0, width: 740, height: 500))
         window.contentView = content
-        label("Trackpad Controls", at: NSRect(x: 24, y: 557, width: 692, height: 32), font: .systemFont(ofSize: 24, weight: .semibold), in: content)
-        label("Choose an edge, then set its slide action and adjustment mode.", at: NSRect(x: 24, y: 528, width: 692, height: 20), secondary: true, in: content)
-        edgeChooser.frame = NSRect(x: 24, y: 490, width: 312, height: 28)
+        label("Trackpad Controls", at: NSRect(x: 24, y: 447, width: 692, height: 32), font: .systemFont(ofSize: 24, weight: .semibold), in: content)
+        label("Choose an edge, then set its slide action.", at: NSRect(x: 24, y: 418, width: 692, height: 20), secondary: true, in: content)
+        edgeChooser.frame = NSRect(x: 24, y: 380, width: 312, height: 28)
         edgeChooser.target = self
         edgeChooser.action = #selector(changeSelectedEdge)
         edgeChooser.setAccessibilityLabel("Selected trackpad edge")
@@ -62,33 +62,33 @@ final class SettingsWindow: NSObject {
         diagram.onSelect = { [weak self] edge in self?.selectedEdge = edge; self?.refreshControls() }
         content.addSubview(diagram)
 
-        instruction.frame = NSRect(x: 24, y: 198, width: 312, height: 66)
+        instruction.frame = NSRect(x: 24, y: 121, width: 312, height: 40)
         instruction.font = .systemFont(ofSize: 12)
         instruction.textColor = .secondaryLabelColor
         content.addSubview(instruction)
-        errorLabel.frame = NSRect(x: 24, y: 128, width: 312, height: 62)
+        errorLabel.frame = NSRect(x: 374, y: 128, width: 342, height: 36)
         errorLabel.font = .systemFont(ofSize: 12)
         errorLabel.textColor = .systemOrange
         content.addSubview(errorLabel)
 
-        edgeTitle.frame = NSRect(x: 374, y: 487, width: 342, height: 28)
+        edgeTitle.frame = NSRect(x: 374, y: 377, width: 342, height: 28)
         edgeTitle.font = .systemFont(ofSize: 20, weight: .semibold)
         content.addSubview(edgeTitle)
-        label("Slide Action", at: NSRect(x: 374, y: 454, width: 342, height: 20), in: content)
-        configure(actionPicker, titles: EdgeAction.allCases.map(\.title), frame: NSRect(x: 374, y: 420, width: 342, height: 28), action: #selector(changeAction), accessibility: "Slide action", in: content)
-        label("Adjustment", at: NSRect(x: 374, y: 382, width: 342, height: 20), in: content)
-        configure(modePicker, titles: AdjustmentMode.allCases.map(\.title), frame: NSRect(x: 374, y: 348, width: 342, height: 28), action: #selector(changeMode), accessibility: "Adjustment mode", in: content)
-        label("Sensitivity", at: NSRect(x: 374, y: 312, width: 342, height: 20), in: content)
-        sensitivitySlider.frame = NSRect(x: 374, y: 282, width: 266, height: 28)
+        label("Slide Action", at: NSRect(x: 374, y: 344, width: 342, height: 20), in: content)
+        configure(actionPicker, titles: EdgeAction.allCases.map(\.title), frame: NSRect(x: 374, y: 310, width: 342, height: 28), action: #selector(changeAction), accessibility: "Slide action", in: content)
+        label("Adjustment", at: NSRect(x: 374, y: 272, width: 342, height: 20), in: content)
+        configure(modePicker, titles: AdjustmentMode.allCases.map(\.title), frame: NSRect(x: 374, y: 238, width: 342, height: 28), action: #selector(changeMode), accessibility: "Adjustment mode", in: content)
+        label("Sensitivity", at: NSRect(x: 374, y: 202, width: 342, height: 20), in: content)
+        sensitivitySlider.frame = NSRect(x: 374, y: 172, width: 266, height: 28)
         sensitivitySlider.numberOfTickMarks = 12
         sensitivitySlider.allowsTickMarkValuesOnly = true
         sensitivitySlider.isContinuous = true
         sensitivitySlider.target = self
         sensitivitySlider.action = #selector(changeSensitivity)
         sensitivitySlider.setAccessibilityLabel("Relative sensitivity")
-        sensitivitySlider.toolTip = "Controls how far a relative slide changes the level."
+        sensitivitySlider.toolTip = "Used by relative adjustment and media gestures."
         content.addSubview(sensitivitySlider)
-        sensitivityValue.frame = NSRect(x: 648, y: 287, width: 68, height: 22)
+        sensitivityValue.frame = NSRect(x: 648, y: 177, width: 68, height: 22)
         sensitivityValue.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         sensitivityValue.alignment = .right
         content.addSubview(sensitivityValue)
@@ -148,10 +148,11 @@ final class SettingsWindow: NSObject {
         edgeChooser.selectedSegment = TrackpadEdge.allCases.firstIndex(of: selectedEdge) ?? 0
         edgeTitle.stringValue = "\(selectedEdge.title) Edge"
         actionPicker.selectItem(at: EdgeAction.allCases.firstIndex(of: edge.action) ?? 0)
-        modePicker.selectItem(at: AdjustmentMode.allCases.firstIndex(of: edge.mode) ?? 0)
+        let displayedMode = edge.action == .disabled ? edge.mode : edge.effectiveMode
+        modePicker.selectItem(at: AdjustmentMode.allCases.firstIndex(of: displayedMode) ?? 0)
         modePicker.isEnabled = edge.action.isLevel
         sensitivitySlider.doubleValue = edge.sensitivity
-        sensitivitySlider.isEnabled = edge.action != .disabled && edge.mode == .relative
+        sensitivitySlider.isEnabled = edge.action != .disabled && edge.effectiveMode == .relative
         sensitivityValue.stringValue = String(format: "%.2gx", edge.sensitivity)
         sensitivityValue.textColor = sensitivitySlider.isEnabled ? .labelColor : .tertiaryLabelColor
         widthSlider.doubleValue = settings.stripWidth * 100
@@ -159,7 +160,7 @@ final class SettingsWindow: NSObject {
         hapticsSwitch.state = settings.hapticsEnabled ? .on : .off
         diagram.settings = settings
         diagram.selectedEdge = selectedEdge
-        instruction.stringValue = "Select a side on the diagram.\nRelative adjustment starts from the current system level."
+        instruction.stringValue = "Slide one finger along an edge to adjust it.\nRelative adjustment starts from the current system level."
         errorLabel.stringValue = store.loadError ?? ""
         errorLabel.isHidden = store.loadError == nil
     }
@@ -256,6 +257,7 @@ private final class TrackpadDiagramView: NSView {
         switch action {
         case .volume: .systemBlue
         case .brightness: .systemOrange
+        case .tracks, .seek: .systemPurple
         case .disabled: .quaternaryLabelColor
         }
     }

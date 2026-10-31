@@ -41,7 +41,7 @@ enum EdgeControlMain {
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             app.appearance = NSAppearance(named: appearance)
             try window.renderPreview(to: directory.appendingPathComponent("settings-\(name).png"), appearance: appearance)
-            for action in [EdgeAction.volume, .brightness] {
+            for action in [EdgeAction.volume, .brightness, .tracks, .seek] {
                 try hud.renderPreview(to: directory.appendingPathComponent("\(action.rawValue)-\(name).png"),
                                       action: action, appearance: appearance)
             }
@@ -57,11 +57,13 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private let cursor = CursorCapture()
     private let audio = AudioOutput()
     private let brightness = BrightnessOutput()
+    private let media = MediaController()
     private let settings = SettingsStore()
     private let hud = LevelHUD()
     private let haptics = HapticFeedback()
     private var gesture = EdgeGesture()
     private var level = LevelAccumulator()
+    private var mediaMotion = MediaMotion()
     private var settingsWindow: SettingsWindow?
     private var activeAction: EdgeAction?
     private var lastAppliedLevel: Int?
@@ -132,6 +134,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         acceptedAfter = .infinity
         gesture.reset()
         level.reset()
+        mediaMotion.reset()
         haptics.reset()
         cursor.stop()
         input.stop()
@@ -159,7 +162,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
                     activeAction = nil
                     lastAppliedLevel = nil
                     level.reset()
-                    haptics.reset()
+                    mediaMotion.reset()
                 }
             case let .active(edge, action, change):
                 if activeAction == nil { try begin(action, configuration: settings.settings[edge]) }
@@ -177,15 +180,17 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
 
     private func begin(_ action: EdgeAction, configuration: EdgeConfiguration) throws {
         level.reset()
+        mediaMotion.reset()
         haptics.reset()
         lastAppliedLevel = nil
         if !diagnostic {
             switch action {
             case .volume: try audio.refresh()
             case .brightness: try brightness.refresh()
+            case .tracks, .seek: break
             case .disabled: throw ApplicationControlError("This edge is disabled")
             }
-            if action.isLevel, configuration.mode == .relative {
+            if action.isLevel, configuration.effectiveMode == .relative {
                 let initial = try action == .volume ? audio.readVolumePercent() : brightness.readBrightnessPercent()
                 try level.start(at: initial)
             }
@@ -206,18 +211,34 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             }
             return
         }
-        let percent = try level.apply(change)
-        guard percent != lastAppliedLevel else { return }
-        switch action {
-        case .volume: try audio.setVolume(percent: percent)
-        case .brightness: try brightness.setBrightness(percent: percent)
-        case .disabled: throw ApplicationControlError("This edge is disabled")
+        if action.isLevel {
+            let percent = try level.apply(change)
+            guard percent != lastAppliedLevel else { return }
+            switch action {
+            case .volume: try audio.setVolume(percent: percent)
+            case .brightness: try brightness.setBrightness(percent: percent)
+            default: throw ApplicationControlError("This action does not control a level")
+            }
+            lastAppliedLevel = percent
+            controlErrors[action] = nil
+            updateMenu()
+            hud.show(action: action, percent: percent)
+            haptics.levelChanged(to: percent, enabled: settings.settings.hapticsEnabled)
+        } else if let command = try mediaMotion.consume(change, action: action) {
+            try perform(command)
         }
-        lastAppliedLevel = percent
-        controlErrors[action] = nil
+    }
+
+    private func perform(_ action: MediaAction) throws {
+        if diagnostic {
+            print("action=\(action.rawValue); no command requested")
+            hud.showSymbol(action.symbol, accessibilityLabel: "Diagnostic: \(action.title)")
+            return
+        }
+        try media.perform(action)
+        hud.showSymbol(action.symbol, accessibilityLabel: action.title)
+        haptics.actionPerformed(enabled: settings.settings.hapticsEnabled)
         updateMenu()
-        hud.show(action: action, percent: percent)
-        haptics.levelChanged(to: percent, enabled: settings.settings.hapticsEnabled)
     }
 
     @objc private func checkInput() {

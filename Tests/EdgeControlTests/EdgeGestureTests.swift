@@ -343,6 +343,22 @@ struct RelativeEdgeGestureTests {
         #expect(absolute.finger(0.5) == level(50))
     }
 
+    @Test func mediaActionsRemainRelativeEvenWhenModeIsAbsolute() throws {
+        for action in [EdgeAction.tracks, .seek] {
+            var input = Input()
+            input.settings.bottom = EdgeConfiguration(action: action, mode: .absolute)
+            input.begin(at: 0.3)
+            let update = input.finger(0.4)
+            guard case let .active(edge, actualAction, .relative(delta)) = update else {
+                Issue.record("Media gesture did not emit relative motion")
+                continue
+            }
+            #expect(edge == .bottom)
+            #expect(actualAction == action)
+            #expect(abs(delta - 10) < 1e-10)
+        }
+    }
+
     @Test func changedModeOrSensitivityCancelsUntilLift() {
         for changeMode in [false, true] {
             var input = Input()

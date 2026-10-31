@@ -4,8 +4,8 @@ import AppKit
 final class StatusMenu: NSObject {
     private let statusItem: NSStatusItem
     private let stateItem = NSMenuItem(title: "Starting…", action: nil, keyEquivalent: "")
-    private let pauseItem = NSMenuItem(title: "Pause", action: nil, keyEquivalent: "")
-    private let permissionItem = NSMenuItem(title: "Grant Accessibility…", action: nil, keyEquivalent: "")
+    private let pauseItem = NSMenuItem(title: "Pause Gestures", action: nil, keyEquivalent: "")
+    private let permissionItem = NSMenuItem(title: "Grant Accessibility Access…", action: nil, keyEquivalent: "")
     private let onTogglePause: () -> Void
     private let onQuit: () -> Void
     private let onRequestPermission: () -> Void
@@ -59,7 +59,7 @@ final class StatusMenu: NSObject {
         let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
         settingsItem.target = self
         menu.addItem(settingsItem)
-        let quitItem = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
+        let quitItem = NSMenuItem(title: "Quit EdgeControl", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
         statusItem.menu = menu
@@ -67,7 +67,7 @@ final class StatusMenu: NSObject {
 
     func update(status: String, isPaused: Bool, needsPermission: Bool) {
         stateItem.title = status
-        pauseItem.title = isPaused ? "Resume" : "Pause"
+        pauseItem.title = isPaused ? "Resume Gestures" : "Pause Gestures"
         permissionItem.isHidden = !needsPermission
         statusItem.button?.toolTip = "EdgeControl: \(status)"
     }
