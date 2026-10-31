@@ -3,23 +3,19 @@ import Darwin
 
 @main
 enum EdgeControlMain {
-    @MainActor
-    static func main() {
+    @MainActor static func main() {
         let arguments = Array(CommandLine.arguments.dropFirst())
         if arguments == ["--help"] {
-            print("Usage: EdgeControl [--diagnose | --render-previews DIRECTORY]\n--diagnose: show samples and target levels without changing volume or brightness.")
+            print("Usage: EdgeControl [--diagnose | --render-previews DIRECTORY]\nDiagnostic mode never changes levels or sends commands.")
             return
         }
         if arguments.count == 2, arguments[0] == "--render-previews" {
             do { try renderPreviews(at: URL(fileURLWithPath: arguments[1], isDirectory: true)) }
-            catch {
-                FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
-                exit(1)
-            }
+            catch { writeError(error.localizedDescription); exit(1) }
             return
         }
         guard arguments.isEmpty || arguments == ["--diagnose"] else {
-            FileHandle.standardError.write(Data("Usage: EdgeControl [--diagnose | --render-previews DIRECTORY]\n".utf8))
+            writeError("Usage: EdgeControl [--diagnose | --render-previews DIRECTORY]")
             exit(2)
         }
         let app = NSApplication.shared
@@ -29,22 +25,26 @@ enum EdgeControlMain {
         withExtendedLifetime(controller) { app.run() }
     }
 
-    @MainActor
-    private static func renderPreviews(at directory: URL) throws {
+    private static func writeError(_ message: String) {
+        FileHandle.standardError.write(Data("\(message)\n".utf8))
+    }
+
+    @MainActor private static func renderPreviews(at directory: URL) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let app = NSApplication.shared
         app.setActivationPolicy(.prohibited)
         let domain = "local.edgecontrol.preview.\(UUID().uuidString)"
-        guard let defaults = UserDefaults(suiteName: domain) else { return }
+        guard let defaults = UserDefaults(suiteName: domain) else { throw CocoaError(.fileWriteUnknown) }
         defer { defaults.removePersistentDomain(forName: domain) }
-        let store = SettingsStore(defaults: defaults)
-        let window = SettingsWindow(store: store)
+        let window = SettingsWindow(store: SettingsStore(defaults: defaults, previousDefaults: nil))
         let hud = LevelHUD()
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             app.appearance = NSAppearance(named: appearance)
             try window.renderPreview(to: directory.appendingPathComponent("settings-\(name).png"), appearance: appearance)
-            try hud.renderPreview(to: directory.appendingPathComponent("volume-\(name).png"), appearance: appearance)
-            try hud.renderPreview(to: directory.appendingPathComponent("brightness-\(name).png"), action: .brightness, appearance: appearance)
+            for action in [EdgeAction.volume, .brightness] {
+                try hud.renderPreview(to: directory.appendingPathComponent("\(action.rawValue)-\(name).png"),
+                                      action: action, appearance: appearance)
+            }
         }
         window.close()
         print("Previews saved: \(directory.path)")
@@ -60,8 +60,10 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private let settings = SettingsStore()
     private let hud = LevelHUD()
     private var gesture = EdgeGesture()
+    private var level = LevelAccumulator()
     private var settingsWindow: SettingsWindow?
     private var activeAction: EdgeAction?
+    private var lastAppliedLevel: Int?
     private var controlErrors: [EdgeAction: String] = [:]
     private var menu: StatusMenu?
     private let diagnostic: Bool
@@ -73,9 +75,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private var lastDiagnosticAt = 0.0
     private var watchdog: Timer?
 
-    init(diagnostic: Bool) {
-        self.diagnostic = diagnostic
-    }
+    init(diagnostic: Bool) { self.diagnostic = diagnostic }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         menu = StatusMenu(
@@ -91,11 +91,11 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         brightness.onChange = { [weak self] in self?.outputChanged(.brightness) }
         settings.onChange = { [weak self] _ in self?.startInput() }
         observeSession()
-        let timer = Timer(timeInterval: 0.1, target: self, selector: #selector(checkInput), userInfo: nil, repeats: true)
+        let timer = Timer(timeInterval: 0.05, target: self, selector: #selector(checkInput), userInfo: nil, repeats: true)
         RunLoop.main.add(timer, forMode: .common)
         watchdog = timer
         if !diagnostic {
-            // An unavailable output must not disable the other action at startup.
+            // Readiness errors remain specific to an action; the other action can still run.
             do { try audio.start() } catch { controlErrors[.volume] = error.localizedDescription }
             do { try brightness.start() } catch { controlErrors[.brightness] = error.localizedDescription }
         }
@@ -116,92 +116,109 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
 
     private func startInput() {
         stopInput()
-        guard !isPaused, suspensions.isEmpty else {
-            updateMenu()
-            return
-        }
+        guard !isPaused, suspensions.isEmpty else { updateMenu(); return }
         do {
-            guard CursorCapture.hasPermission else {
-                fail("Accessibility permission is required")
-                return
-            }
+            guard CursorCapture.hasPermission else { fail("Accessibility permission is required"); return }
             try cursor.start()
             acceptedAfter = ProcessInfo.processInfo.systemUptime
             try input.start()
             errorMessage = nil
             updateMenu()
-        } catch {
-            fail(error.localizedDescription)
-        }
+        } catch { fail(error.localizedDescription) }
     }
 
     private func stopInput() {
         acceptedAfter = .infinity
         gesture.reset()
+        level.reset()
         cursor.stop()
         input.stop()
         hud.hide()
         activeAction = nil
+        lastAppliedLevel = nil
         lastFrameAt = nil
     }
 
     private func handle(_ frame: TrackpadFrame) {
-        guard !isPaused, suspensions.isEmpty, input.isRunning,
-              frame.timestamp >= acceptedAfter else { return }
+        guard !isPaused, suspensions.isEmpty, input.isRunning, frame.timestamp >= acceptedAfter else { return }
         let now = ProcessInfo.processInfo.systemUptime
-        // Queued frames must never apply an old gesture after the app stalls.
-        guard frame.timestamp.isFinite, frame.timestamp <= now,
-              now - frame.timestamp < 0.5 else {
-            fail("Trackpad input is delayed; resume the app")
+        guard frame.timestamp.isFinite, frame.timestamp <= now, now - frame.timestamp < 0.5 else {
+            fail("Trackpad data arrived too late; resume to retry")
             return
         }
         lastFrameAt = now
         let update = gesture.process(frame, settings: settings.settings)
-        switch update {
-        case .inactive:
-            cursor.release()
-            if activeAction != nil {
-                hud.finish()
-                activeAction = nil
-            }
-        case let .active(_, action, percent):
-            do {
-                if activeAction == nil {
-                    if !diagnostic {
-                        switch action {
-                        case .volume: try audio.refresh()
-                        case .brightness: try brightness.refresh()
-                        case .disabled: throw ApplicationControlError("This edge is disabled")
-                        }
-                    }
-                    try cursor.acquire()
-                    activeAction = action
+        do {
+            switch update {
+            case .inactive:
+                cursor.release()
+                if activeAction != nil {
+                    hud.finish()
+                    activeAction = nil
+                    lastAppliedLevel = nil
+                    level.reset()
                 }
-                if let percent {
-                    if diagnostic {
-                        print("action=\(action.rawValue) target=\(percent)% (system levels unchanged)")
-                    } else {
-                        switch action {
-                        case .volume: try audio.setVolume(percent: percent)
-                        case .brightness: try brightness.setBrightness(percent: percent)
-                        case .disabled: throw ApplicationControlError("This edge is disabled")
-                        }
-                        controlErrors[action] = nil
-                        updateMenu()
-                    }
-                    hud.show(action: action, percent: percent, diagnostic: diagnostic)
-                }
-            } catch {
-                fail(error.localizedDescription)
-                return
+            case let .active(edge, action, change):
+                if activeAction == nil { try begin(action, configuration: settings.settings[edge]) }
+                if let change { try apply(change, action: action) }
             }
-        }
+        } catch { fail(error.localizedDescription); return }
         if diagnostic, now - lastDiagnosticAt >= 0.1 {
             let positions = frame.contacts.map {
                 String(format: "id=%d x=%.4f y=%.4f", $0.id, $0.x, $0.y)
             }.joined(separator: "; ")
             print("contacts=\(frame.contacts.count) active=\(update.isActive) \(positions)")
             lastDiagnosticAt = now
+        }
+    }
+
+    private func begin(_ action: EdgeAction, configuration: EdgeConfiguration) throws {
+        level.reset()
+        lastAppliedLevel = nil
+        if !diagnostic {
+            switch action {
+            case .volume: try audio.refresh()
+            case .brightness: try brightness.refresh()
+            case .disabled: throw ApplicationControlError("This edge is disabled")
+            }
+            if action.isLevel, configuration.mode == .relative {
+                let initial = try action == .volume ? audio.readVolumePercent() : brightness.readBrightnessPercent()
+                try level.start(at: initial)
+            }
+        }
+        try cursor.acquire()
+        activeAction = action
+    }
+
+    private func apply(_ change: LevelChange, action: EdgeAction) throws {
+        if diagnostic {
+            switch change {
+            case .absolute(let percent): hud.show(action: action, percent: percent, diagnostic: true)
+            case .relative(let delta):
+                if ProcessInfo.processInfo.systemUptime - lastDiagnosticAt >= 0.1 {
+                    print("action=\(action.rawValue) delta=\(delta) percentage points; no output requested")
+                }
+                hud.showSymbol("arrow.left.and.right", accessibilityLabel: "Diagnostic relative movement")
+            }
+            return
+        }
+        let percent = try level.apply(change)
+        guard percent != lastAppliedLevel else { return }
+        switch action {
+        case .volume: try audio.setVolume(percent: percent)
+        case .brightness: try brightness.setBrightness(percent: percent)
+        case .disabled: throw ApplicationControlError("This edge is disabled")
+        }
+        lastAppliedLevel = percent
+        controlErrors[action] = nil
+        updateMenu()
+        hud.show(action: action, percent: percent)
+    }
+
+    @objc private func checkInput() {
+        let now = ProcessInfo.processInfo.systemUptime
+        if cursor.isCaptured, let lastFrameAt, now - lastFrameAt >= 0.5 {
+            fail("Trackpad signal was lost; resume to retry")
         }
     }
 
@@ -212,26 +229,12 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
 
     private func outputChanged(_ action: EdgeAction) {
         controlErrors[action] = nil
-        if activeAction == nil || activeAction == action { startInput() }
-        else { updateMenu() }
-    }
-
-    @objc private func checkInput() {
-        guard cursor.isCaptured, let lastFrameAt else { return }
-        if ProcessInfo.processInfo.systemUptime - lastFrameAt >= 0.5 {
-            fail("Trackpad input was lost; resume the app")
-        }
+        if activeAction == nil || activeAction == action { startInput() } else { updateMenu() }
     }
 
     private func togglePause() {
         isPaused.toggle()
-        if isPaused {
-            errorMessage = nil
-            stopInput()
-            updateMenu()
-        } else {
-            startInput()
-        }
+        if isPaused { errorMessage = nil; stopInput(); updateMenu() } else { startInput() }
     }
 
     private func fail(_ message: String) {
@@ -244,22 +247,17 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
 
     private func requestPermission() {
         CursorCapture.requestPermission()
-        if CursorCapture.hasPermission {
-            isPaused = false
-            startInput()
-        } else {
-            updateMenu()
-        }
+        if CursorCapture.hasPermission { isPaused = false; startInput() } else { updateMenu() }
     }
 
     private func updateMenu() {
         let unavailable = EdgeAction.allCases.first { action in
-            action != .disabled && controlErrors[action] != nil &&
-                TrackpadEdge.allCases.contains { settings.settings[$0] == action }
+            action.isLevel && controlErrors[action] != nil &&
+                TrackpadEdge.allCases.contains { settings.settings[$0].action == action }
         }
         let warning = unavailable.flatMap { action in controlErrors[action].map { "\(action.title): \($0)" } }
         let status = errorMessage ?? (!suspensions.isEmpty ? "Session suspended" :
-            (isPaused ? "Paused" : (diagnostic ? "Diagnostic: system levels unchanged" : (warning ?? "Ready"))))
+            (isPaused ? "Paused" : (diagnostic ? "Diagnostic: outputs unchanged" : (warning ?? "Ready"))))
         menu?.update(status: status, isPaused: isPaused, needsPermission: !CursorCapture.hasPermission)
     }
 
@@ -269,9 +267,8 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
                      NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification] {
             center.addObserver(self, selector: #selector(sessionChanged(_:)), name: name, object: nil)
         }
-        let distributed = DistributedNotificationCenter.default()
         for name in ["com.apple.screenIsLocked", "com.apple.screenIsUnlocked"] {
-            distributed.addObserver(self, selector: #selector(sessionChanged(_:)), name: .init(name), object: nil)
+            DistributedNotificationCenter.default().addObserver(self, selector: #selector(sessionChanged(_:)), name: .init(name), object: nil)
         }
     }
 
@@ -285,10 +282,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         case .init("com.apple.screenIsUnlocked"): suspensions.remove("lock")
         default: return
         }
-        if suspensions.isEmpty { startInput() } else {
-            stopInput()
-            updateMenu()
-        }
+        if suspensions.isEmpty { startInput() } else { stopInput(); updateMenu() }
     }
 }
 

@@ -1,21 +1,13 @@
+import Foundation
+
 enum TrackpadEdge: String, Codable, CaseIterable, Sendable {
     case top, right, bottom, left
-
-    var title: String {
-        switch self {
-        case .top: "Top"
-        case .right: "Right"
-        case .bottom: "Bottom"
-        case .left: "Left"
-        }
-    }
-
+    var title: String { rawValue.capitalized }
     var isHorizontal: Bool { self == .top || self == .bottom }
 }
 
 enum EdgeAction: String, Codable, CaseIterable, Sendable {
     case disabled, volume, brightness
-
     var title: String {
         switch self {
         case .disabled: "Disabled"
@@ -23,9 +15,6 @@ enum EdgeAction: String, Codable, CaseIterable, Sendable {
         case .brightness: "Brightness"
         }
     }
-
-    var isLevel: Bool { self == .volume || self == .brightness }
-
     var symbol: String {
         switch self {
         case .disabled: "minus"
@@ -33,21 +22,34 @@ enum EdgeAction: String, Codable, CaseIterable, Sendable {
         case .brightness: "sun.max.fill"
         }
     }
+    var isLevel: Bool { self == .volume || self == .brightness }
+}
+
+enum AdjustmentMode: String, Codable, CaseIterable, Sendable {
+    case absolute, relative
+    var title: String { rawValue.capitalized }
+}
+
+struct EdgeConfiguration: Codable, Equatable, Sendable {
+    var action: EdgeAction = .disabled
+    var mode: AdjustmentMode = .absolute
+    var sensitivity: Double = 1
+    var isValid: Bool { sensitivity.isFinite && (0.25...3).contains(sensitivity) }
 }
 
 struct EdgeSettings: Codable, Equatable, Sendable {
-    var top: EdgeAction = .disabled
-    var right: EdgeAction = .brightness
-    var bottom: EdgeAction = .volume
-    var left: EdgeAction = .disabled
+    var top = EdgeConfiguration()
+    var right = EdgeConfiguration(action: .brightness)
+    var bottom = EdgeConfiguration(action: .volume)
+    var left = EdgeConfiguration()
     var stripWidth: Double = 0.05
-
     static let defaults = EdgeSettings()
     static let allowedStripWidths = 0.03...0.15
-
-    var isValid: Bool { stripWidth.isFinite && Self.allowedStripWidths.contains(stripWidth) }
-
-    subscript(edge: TrackpadEdge) -> EdgeAction {
+    var isValid: Bool {
+        stripWidth.isFinite && Self.allowedStripWidths.contains(stripWidth) &&
+            TrackpadEdge.allCases.allSatisfy { self[$0].isValid }
+    }
+    subscript(edge: TrackpadEdge) -> EdgeConfiguration {
         get {
             switch edge {
             case .top: top

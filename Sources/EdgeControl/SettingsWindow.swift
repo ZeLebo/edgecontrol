@@ -4,20 +4,22 @@ import AppKit
 final class SettingsWindow: NSObject {
     private let store: SettingsStore
     private let window: NSWindow
-    private let diagram = TrackpadDiagramView(frame: NSRect(x: 194, y: 212, width: 232, height: 148))
-    private var selectors: [TrackpadEdge: NSPopUpButton] = [:]
+    private var selectedEdge: TrackpadEdge = .bottom
+    private let edgeChooser = NSSegmentedControl(labels: TrackpadEdge.allCases.map(\.title), trackingMode: .selectOne, target: nil, action: nil)
+    private let diagram = TrackpadDiagramView(frame: NSRect(x: 30, y: 278, width: 300, height: 196))
+    private let edgeTitle = NSTextField(labelWithString: "Bottom Edge")
+    private let actionPicker = NSPopUpButton()
+    private let modePicker = NSPopUpButton()
+    private let sensitivitySlider = NSSlider(value: 1, minValue: 0.25, maxValue: 3, target: nil, action: nil)
+    private let sensitivityValue = NSTextField(labelWithString: "1x")
     private let widthSlider = NSSlider(value: 5, minValue: 3, maxValue: 15, target: nil, action: nil)
-    private let widthLabel = NSTextField(labelWithString: "5%")
+    private let widthValue = NSTextField(labelWithString: "5%")
+    private let instruction = NSTextField(wrappingLabelWithString: "")
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
 
     init(store: SettingsStore) {
         self.store = store
-        window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 620, height: 520),
-            styleMask: [.titled, .closable, .miniaturizable],
-            backing: .buffered,
-            defer: false
-        )
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 740, height: 610), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         super.init()
         window.title = "EdgeControl Settings"
         window.isReleasedWhenClosed = false
@@ -38,179 +40,209 @@ final class SettingsWindow: NSObject {
         guard let content = window.contentView else { throw SettingsPreviewError.unavailable }
         window.appearance = NSAppearance(named: appearance)
         content.appearance = window.appearance
+        refreshControls()
         content.layoutSubtreeIfNeeded()
-        guard let image = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
-            throw SettingsPreviewError.unavailable
-        }
-        window.effectiveAppearance.performAsCurrentDrawingAppearance {
-            content.cacheDisplay(in: content.bounds, to: image)
-        }
-        guard let data = image.representation(using: .png, properties: [:]) else {
-            throw SettingsPreviewError.unavailable
-        }
+        guard let image = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { throw SettingsPreviewError.unavailable }
+        window.effectiveAppearance.performAsCurrentDrawingAppearance { content.cacheDisplay(in: content.bounds, to: image) }
+        guard let data = image.representation(using: .png, properties: [:]) else { throw SettingsPreviewError.unavailable }
         try data.write(to: url, options: .atomic)
     }
 
     private func buildContent() {
-        let content = SettingsBackgroundView(frame: NSRect(x: 0, y: 0, width: 620, height: 520))
+        let content = SettingsBackgroundView(frame: NSRect(x: 0, y: 0, width: 740, height: 610))
         window.contentView = content
-
-        let title = NSTextField(labelWithString: "Trackpad Edges")
-        title.font = .systemFont(ofSize: 24, weight: .semibold)
-        title.frame = NSRect(x: 24, y: 472, width: 560, height: 32)
-        content.addSubview(title)
-
-        let subtitle = NSTextField(labelWithString: "Choose an action for each edge. Slide to set a level from 0 to 100%.")
-        subtitle.font = .systemFont(ofSize: 13)
-        subtitle.textColor = .secondaryLabelColor
-        subtitle.frame = NSRect(x: 24, y: 447, width: 572, height: 20)
-        content.addSubview(subtitle)
+        label("Trackpad Controls", at: NSRect(x: 24, y: 557, width: 692, height: 32), font: .systemFont(ofSize: 24, weight: .semibold), in: content)
+        label("Choose an edge, then set its slide action and adjustment mode.", at: NSRect(x: 24, y: 528, width: 692, height: 20), secondary: true, in: content)
+        edgeChooser.frame = NSRect(x: 24, y: 490, width: 312, height: 28)
+        edgeChooser.target = self
+        edgeChooser.action = #selector(changeSelectedEdge)
+        edgeChooser.setAccessibilityLabel("Selected trackpad edge")
+        content.addSubview(edgeChooser)
+        diagram.onSelect = { [weak self] edge in self?.selectedEdge = edge; self?.refreshControls() }
         content.addSubview(diagram)
 
-        addSelector(.top, frame: NSRect(x: 220, y: 382, width: 180, height: 52), to: content)
-        addSelector(.right, frame: NSRect(x: 436, y: 260, width: 160, height: 52), to: content)
-        addSelector(.bottom, frame: NSRect(x: 220, y: 158, width: 180, height: 52), to: content)
-        addSelector(.left, frame: NSRect(x: 24, y: 260, width: 160, height: 52), to: content)
+        instruction.frame = NSRect(x: 24, y: 198, width: 312, height: 66)
+        instruction.font = .systemFont(ofSize: 12)
+        instruction.textColor = .secondaryLabelColor
+        content.addSubview(instruction)
+        errorLabel.frame = NSRect(x: 24, y: 128, width: 312, height: 62)
+        errorLabel.font = .systemFont(ofSize: 12)
+        errorLabel.textColor = .systemOrange
+        content.addSubview(errorLabel)
 
-        let widthTitle = NSTextField(labelWithString: "Edge Width")
-        widthTitle.font = .systemFont(ofSize: 13, weight: .medium)
-        widthTitle.frame = NSRect(x: 24, y: 113, width: 124, height: 22)
-        content.addSubview(widthTitle)
-        widthSlider.frame = NSRect(x: 164, y: 108, width: 348, height: 28)
+        edgeTitle.frame = NSRect(x: 374, y: 487, width: 342, height: 28)
+        edgeTitle.font = .systemFont(ofSize: 20, weight: .semibold)
+        content.addSubview(edgeTitle)
+        label("Slide Action", at: NSRect(x: 374, y: 454, width: 342, height: 20), in: content)
+        configure(actionPicker, titles: EdgeAction.allCases.map(\.title), frame: NSRect(x: 374, y: 420, width: 342, height: 28), action: #selector(changeAction), accessibility: "Slide action", in: content)
+        label("Adjustment", at: NSRect(x: 374, y: 382, width: 342, height: 20), in: content)
+        configure(modePicker, titles: AdjustmentMode.allCases.map(\.title), frame: NSRect(x: 374, y: 348, width: 342, height: 28), action: #selector(changeMode), accessibility: "Adjustment mode", in: content)
+        label("Sensitivity", at: NSRect(x: 374, y: 312, width: 342, height: 20), in: content)
+        sensitivitySlider.frame = NSRect(x: 374, y: 282, width: 266, height: 28)
+        sensitivitySlider.numberOfTickMarks = 12
+        sensitivitySlider.allowsTickMarkValuesOnly = true
+        sensitivitySlider.isContinuous = true
+        sensitivitySlider.target = self
+        sensitivitySlider.action = #selector(changeSensitivity)
+        sensitivitySlider.setAccessibilityLabel("Relative sensitivity")
+        sensitivitySlider.toolTip = "Controls how far a relative slide changes the level."
+        content.addSubview(sensitivitySlider)
+        sensitivityValue.frame = NSRect(x: 648, y: 287, width: 68, height: 22)
+        sensitivityValue.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        sensitivityValue.alignment = .right
+        content.addSubview(sensitivityValue)
+
+        let divider = NSBox(frame: NSRect(x: 24, y: 115, width: 692, height: 1))
+        divider.boxType = .separator
+        content.addSubview(divider)
+        label("Edge Width", at: NSRect(x: 24, y: 78, width: 112, height: 22), in: content)
+        widthSlider.frame = NSRect(x: 140, y: 74, width: 310, height: 28)
         widthSlider.numberOfTickMarks = 13
         widthSlider.allowsTickMarkValuesOnly = true
         widthSlider.isContinuous = true
         widthSlider.target = self
         widthSlider.action = #selector(changeWidth)
-        widthSlider.setAccessibilityLabel("Active edge width, percent")
+        widthSlider.setAccessibilityLabel("Edge width, percent")
         content.addSubview(widthSlider)
-        widthLabel.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
-        widthLabel.alignment = .right
-        widthLabel.frame = NSRect(x: 532, y: 113, width: 64, height: 22)
-        content.addSubview(widthLabel)
-
-        errorLabel.font = .systemFont(ofSize: 12)
-        errorLabel.textColor = .systemOrange
-        errorLabel.frame = NSRect(x: 24, y: 60, width: 572, height: 40)
-        content.addSubview(errorLabel)
-
-        let footer = NSTextField(labelWithString: "Changes save automatically.")
-        footer.font = .systemFont(ofSize: 11)
-        footer.textColor = .secondaryLabelColor
-        footer.frame = NSRect(x: 24, y: 27, width: 338, height: 18)
-        content.addSubview(footer)
-        let resetButton = NSButton(title: "Reset to Defaults", target: self, action: #selector(resetSettings))
-        resetButton.bezelStyle = .rounded
-        resetButton.frame = NSRect(x: 390, y: 20, width: 210, height: 32)
-        content.addSubview(resetButton)
-
-        let controls = TrackpadEdge.allCases.compactMap { selectors[$0] } + [widthSlider, resetButton]
-        for (current, next) in zip(controls, controls.dropFirst() + [controls[0]]) {
-            current.nextKeyView = next
-        }
-        window.initialFirstResponder = selectors[.top]
+        widthValue.frame = NSRect(x: 463, y: 78, width: 54, height: 22)
+        widthValue.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        widthValue.alignment = .right
+        content.addSubview(widthValue)
+        label("Changes are saved automatically.", at: NSRect(x: 24, y: 28, width: 400, height: 20), font: .systemFont(ofSize: 11), secondary: true, in: content)
+        let reset = NSButton(title: "Restore Defaults", target: self, action: #selector(resetSettings))
+        reset.bezelStyle = .rounded
+        reset.frame = NSRect(x: 548, y: 20, width: 172, height: 32)
+        content.addSubview(reset)
+        let controls: [NSView] = [edgeChooser, actionPicker, modePicker, sensitivitySlider, widthSlider, reset]
+        for (current, next) in zip(controls, controls.dropFirst() + [controls[0]]) { current.nextKeyView = next }
+        window.initialFirstResponder = edgeChooser
     }
 
-    private func addSelector(_ edge: TrackpadEdge, frame: NSRect, to content: NSView) {
-        let label = NSTextField(labelWithString: edge.title)
-        label.font = .systemFont(ofSize: 13, weight: .medium)
-        label.alignment = .center
-        label.frame = NSRect(x: frame.minX, y: frame.minY + 30, width: frame.width, height: 20)
-        content.addSubview(label)
-        let selector = NSPopUpButton(frame: NSRect(x: frame.minX, y: frame.minY, width: frame.width, height: 28))
-        selector.addItems(withTitles: EdgeAction.allCases.map(\.title))
-        selector.identifier = NSUserInterfaceItemIdentifier(edge.rawValue)
-        selector.target = self
-        selector.action = #selector(changeAssignment(_:))
-        selector.setAccessibilityLabel("\(edge.title): action")
-        content.addSubview(selector)
-        selectors[edge] = selector
+    @discardableResult
+    private func label(_ title: String, at frame: NSRect, font: NSFont = .systemFont(ofSize: 13, weight: .medium), secondary: Bool = false, in content: NSView) -> NSTextField {
+        let field = NSTextField(labelWithString: title)
+        field.font = font
+        field.textColor = secondary ? .secondaryLabelColor : .labelColor
+        field.frame = frame
+        content.addSubview(field)
+        return field
+    }
+
+    private func configure(_ picker: NSPopUpButton, titles: [String], frame: NSRect, action: Selector, accessibility: String, in content: NSView) {
+        picker.addItems(withTitles: titles)
+        picker.frame = frame
+        picker.target = self
+        picker.action = action
+        picker.setAccessibilityLabel(accessibility)
+        content.addSubview(picker)
     }
 
     private func refreshControls() {
         let settings = store.settings
-        for edge in TrackpadEdge.allCases {
-            selectors[edge]?.selectItem(at: EdgeAction.allCases.firstIndex(of: settings[edge])!)
-        }
+        let edge = settings[selectedEdge]
+        edgeChooser.selectedSegment = TrackpadEdge.allCases.firstIndex(of: selectedEdge) ?? 0
+        edgeTitle.stringValue = "\(selectedEdge.title) Edge"
+        actionPicker.selectItem(at: EdgeAction.allCases.firstIndex(of: edge.action) ?? 0)
+        modePicker.selectItem(at: AdjustmentMode.allCases.firstIndex(of: edge.mode) ?? 0)
+        modePicker.isEnabled = edge.action.isLevel
+        sensitivitySlider.doubleValue = edge.sensitivity
+        sensitivitySlider.isEnabled = edge.action != .disabled && edge.mode == .relative
+        sensitivityValue.stringValue = String(format: "%.2gx", edge.sensitivity)
+        sensitivityValue.textColor = sensitivitySlider.isEnabled ? .labelColor : .tertiaryLabelColor
         widthSlider.doubleValue = settings.stripWidth * 100
-        widthLabel.stringValue = String(format: "%.0f%%", settings.stripWidth * 100)
+        widthValue.stringValue = String(format: "%.0f%%", settings.stripWidth * 100)
         diagram.settings = settings
+        diagram.selectedEdge = selectedEdge
+        instruction.stringValue = "Select a side on the diagram.\nRelative adjustment starts from the current system level."
         errorLabel.stringValue = store.loadError ?? ""
         errorLabel.isHidden = store.loadError == nil
     }
 
-    @objc private func changeAssignment(_ sender: NSPopUpButton) {
-        guard let identifier = sender.identifier?.rawValue,
-              let edge = TrackpadEdge(rawValue: identifier),
-              EdgeAction.allCases.indices.contains(sender.indexOfSelectedItem) else { return }
+    private func updateEdge(_ change: (inout EdgeConfiguration) -> Void) {
         var settings = store.settings
-        settings[edge] = EdgeAction.allCases[sender.indexOfSelectedItem]
+        var edge = settings[selectedEdge]
+        change(&edge)
+        settings[selectedEdge] = edge
         save(settings)
-    }
-
-    @objc private func changeWidth() {
-        var settings = store.settings
-        settings.stripWidth = widthSlider.doubleValue.rounded() / 100
-        save(settings)
-    }
-
-    @objc private func resetSettings() {
-        do {
-            try store.reset()
-            refreshControls()
-        } catch { showError(error) }
     }
 
     private func save(_ settings: EdgeSettings) {
-        do {
-            try store.update(settings)
-            refreshControls()
-        } catch { showError(error) }
+        do { try store.update(settings); refreshControls() }
+        catch { refreshControls(); errorLabel.stringValue = error.localizedDescription; errorLabel.isHidden = false }
     }
 
-    private func showError(_ error: Error) {
+    @objc private func changeSelectedEdge() {
+        guard TrackpadEdge.allCases.indices.contains(edgeChooser.selectedSegment) else { return }
+        selectedEdge = TrackpadEdge.allCases[edgeChooser.selectedSegment]
         refreshControls()
-        errorLabel.stringValue = error.localizedDescription
-        errorLabel.isHidden = false
+    }
+    @objc private func changeAction() {
+        guard EdgeAction.allCases.indices.contains(actionPicker.indexOfSelectedItem) else { return }
+        updateEdge { $0.action = EdgeAction.allCases[actionPicker.indexOfSelectedItem] }
+    }
+    @objc private func changeMode() {
+        guard AdjustmentMode.allCases.indices.contains(modePicker.indexOfSelectedItem) else { return }
+        updateEdge { $0.mode = AdjustmentMode.allCases[modePicker.indexOfSelectedItem] }
+    }
+    @objc private func changeSensitivity() { updateEdge { $0.sensitivity = (sensitivitySlider.doubleValue * 4).rounded() / 4 } }
+    @objc private func changeWidth() { var value = store.settings; value.stripWidth = widthSlider.doubleValue.rounded() / 100; save(value) }
+    @objc private func resetSettings() {
+        do { try store.reset(); refreshControls() }
+        catch { errorLabel.stringValue = error.localizedDescription; errorLabel.isHidden = false }
     }
 }
 
 @MainActor
 private final class SettingsBackgroundView: NSView {
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.setFill()
-        bounds.fill()
-    }
+    override func draw(_ dirtyRect: NSRect) { NSColor.windowBackgroundColor.setFill(); bounds.fill() }
 }
 
 @MainActor
 private final class TrackpadDiagramView: NSView {
     var settings = EdgeSettings.defaults { didSet { needsDisplay = true } }
+    var selectedEdge = TrackpadEdge.bottom { didSet { needsDisplay = true } }
+    var onSelect: ((TrackpadEdge) -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let frame = bounds.insetBy(dx: 10, dy: 10)
+        guard frame.insetBy(dx: -8, dy: -8).contains(point) else { return }
+        let distances: [(TrackpadEdge, CGFloat)] = [(.top, abs(point.y - frame.maxY)), (.right, abs(point.x - frame.maxX)), (.bottom, abs(point.y - frame.minY)), (.left, abs(point.x - frame.minX))]
+        if let nearest = distances.min(by: { $0.1 < $1.1 }), nearest.1 <= 32 { onSelect?(nearest.0) }
+    }
 
     override func draw(_ dirtyRect: NSRect) {
-        let frame = bounds.insetBy(dx: 5, dy: 5)
-        let shape = NSBezierPath(roundedRect: frame, xRadius: 14, yRadius: 14)
+        let frame = bounds.insetBy(dx: 10, dy: 10)
+        let outline = NSBezierPath(roundedRect: frame, xRadius: 18, yRadius: 18)
         NSColor.controlBackgroundColor.setFill()
-        shape.fill()
+        outline.fill()
         NSColor.separatorColor.setStroke()
-        shape.lineWidth = 1.5
-        shape.stroke()
+        outline.lineWidth = 1.5
+        outline.stroke()
+        for edge in TrackpadEdge.allCases { draw(edge, inside: frame) }
+        centered("\(selectedEdge.title) edge", y: frame.midY + 4, font: .systemFont(ofSize: 16, weight: .medium))
+        centered(settings[selectedEdge].action.title, y: frame.midY - 19, font: .systemFont(ofSize: 12))
+    }
 
-        let horizontalThickness = max(4, frame.height * settings.stripWidth)
-        let verticalThickness = max(4, frame.width * settings.stripWidth)
-        let stripes: [TrackpadEdge: NSRect] = [
-            .top: NSRect(x: frame.minX + 15, y: frame.maxY - horizontalThickness - 2, width: frame.width - 30, height: horizontalThickness),
-            .bottom: NSRect(x: frame.minX + 15, y: frame.minY + 2, width: frame.width - 30, height: horizontalThickness),
-            .left: NSRect(x: frame.minX + 2, y: frame.minY + 15, width: verticalThickness, height: frame.height - 30),
-            .right: NSRect(x: frame.maxX - verticalThickness - 2, y: frame.minY + 15, width: verticalThickness, height: frame.height - 30),
-        ]
-        for (edge, stripe) in stripes {
-            color(for: settings[edge]).setFill()
-            let radius = min(stripe.width, stripe.height) / 2
-            NSBezierPath(roundedRect: stripe, xRadius: radius, yRadius: radius).fill()
+    private func draw(_ edge: TrackpadEdge, inside frame: NSRect) {
+        let horizontal = edge.isHorizontal
+        let thickness = max(5, (horizontal ? frame.height : frame.width) * settings.stripWidth)
+        let strip: NSRect
+        switch edge {
+        case .top: strip = NSRect(x: frame.minX + 22, y: frame.maxY - thickness - 2, width: frame.width - 44, height: thickness)
+        case .right: strip = NSRect(x: frame.maxX - thickness - 2, y: frame.minY + 22, width: thickness, height: frame.height - 44)
+        case .bottom: strip = NSRect(x: frame.minX + 22, y: frame.minY + 2, width: frame.width - 44, height: thickness)
+        case .left: strip = NSRect(x: frame.minX + 2, y: frame.minY + 22, width: thickness, height: frame.height - 44)
         }
-        drawCentered("Trackpad", y: frame.midY + 2, font: .systemFont(ofSize: 15, weight: .medium))
-        drawCentered("Slide along an edge", y: frame.midY - 20, font: .systemFont(ofSize: 11))
+        let shape = NSBezierPath(roundedRect: strip, xRadius: thickness / 2, yRadius: thickness / 2)
+        color(for: settings[edge].action).setFill()
+        shape.fill()
+        if edge == selectedEdge {
+            NSColor.keyboardFocusIndicatorColor.setStroke()
+            let focus = NSBezierPath(roundedRect: strip.insetBy(dx: -3, dy: -3), xRadius: thickness / 2 + 3, yRadius: thickness / 2 + 3)
+            focus.lineWidth = 1.5
+            focus.stroke()
+        }
     }
 
     private func color(for action: EdgeAction) -> NSColor {
@@ -220,8 +252,7 @@ private final class TrackpadDiagramView: NSView {
         case .disabled: .quaternaryLabelColor
         }
     }
-
-    private func drawCentered(_ text: String, y: CGFloat, font: NSFont) {
+    private func centered(_ text: String, y: CGFloat, font: NSFont) {
         let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
         let size = (text as NSString).size(withAttributes: attributes)
         (text as NSString).draw(at: NSPoint(x: (bounds.width - size.width) / 2, y: y), withAttributes: attributes)
@@ -230,5 +261,5 @@ private final class TrackpadDiagramView: NSView {
 
 private enum SettingsPreviewError: LocalizedError {
     case unavailable
-    var errorDescription: String? { "Could not render the settings window" }
+    var errorDescription: String? { "Could not render the settings preview." }
 }

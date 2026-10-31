@@ -31,10 +31,23 @@ private struct Input {
 }
 
 private func level(_ percent: Int?, edge: TrackpadEdge = .bottom, action: EdgeAction = .volume) -> GestureUpdate {
-    .active(edge: edge, action: action, percent: percent)
+    .active(edge: edge, action: action, change: percent.map(LevelChange.absolute))
 }
 
-@Suite("Absolute edge gestures")
+private func disabledSettings() -> EdgeSettings {
+    var settings = EdgeSettings.defaults
+    for edge in TrackpadEdge.allCases { settings[edge] = EdgeConfiguration() }
+    return settings
+}
+
+private func allVolumeSettings(width: Double) -> EdgeSettings {
+    var settings = disabledSettings()
+    settings.stripWidth = width
+    for edge in TrackpadEdge.allCases { settings[edge].action = .volume }
+    return settings
+}
+
+@Suite("Edge gestures")
 struct EdgeGestureTests {
     @Test func absoluteScaleWorksFromBothDirections() {
         for start in [0.1, 0.9] {
@@ -161,8 +174,8 @@ struct EdgeGestureTests {
             for action in [EdgeAction.volume, .brightness] {
                 for start in [0.1, 0.9] {
                     var input = Input()
-                    input.settings = EdgeSettings(top: .disabled, right: .disabled, bottom: .disabled, left: .disabled)
-                    input.settings[edge] = action
+                    input.settings = disabledSettings()
+                    input.settings[edge].action = action
                     #expect(input.send([]) == .inactive)
                     #expect(input.along(edge, at: start) == .inactive)
                     #expect(input.along(edge, at: 0.5) == level(50, edge: edge, action: action))
@@ -175,7 +188,7 @@ struct EdgeGestureTests {
 
     @Test func disabledEdgesAndCenterStartsRemainInactive() {
         var input = Input()
-        input.settings = EdgeSettings(top: .disabled, right: .disabled, bottom: .disabled, left: .disabled)
+        input.settings = disabledSettings()
         for edge in TrackpadEdge.allCases {
             #expect(input.send([]) == .inactive)
             #expect(input.along(edge, at: 0.1) == .inactive)
@@ -213,7 +226,7 @@ struct EdgeGestureTests {
 
     @Test func disabledCornerAxisDoesNotCompeteWithTheEnabledAxis() {
         var input = Input()
-        input.settings.right = .disabled
+        input.settings.right.action = .disabled
         input.begin(at: 0.98)
         #expect(input.finger(0.96, y: 0.04) == level(99))
     }
@@ -221,7 +234,7 @@ struct EdgeGestureTests {
     @Test func configuredWidthControlsAllFourStripBoundaries() {
         for edge in TrackpadEdge.allCases {
             var input = Input()
-            input.settings = EdgeSettings(top: .volume, right: .volume, bottom: .volume, left: .volume, stripWidth: 0.15)
+            input.settings = allVolumeSettings(width: 0.15)
             #expect(input.send([]) == .inactive)
             switch edge {
             case .bottom:
@@ -249,7 +262,7 @@ struct EdgeGestureTests {
             var input = Input()
             input.begin()
             #expect(input.finger(0.5) == level(50))
-            if changeAction { input.settings.bottom = .brightness } else { input.settings.stripWidth = 0.1 }
+            if changeAction { input.settings.bottom.action = .brightness } else { input.settings.stripWidth = 0.1 }
             #expect(input.finger(0.8) == .inactive)
             #expect(input.finger(0.1) == .inactive)
             input.begin()
@@ -274,5 +287,88 @@ struct EdgeGestureTests {
         #expect(input.finger(0.96, y: 0.051) == .inactive)
         #expect(input.finger(0.93, y: 0.049) == .inactive)
         #expect(input.finger(0.5) == .inactive)
+    }
+}
+
+@Suite("Relative edge adjustments")
+struct RelativeEdgeGestureTests {
+    @Test func currentSeventyIsAdjustedWithoutJumpingToTouchPosition() throws {
+        for edge in TrackpadEdge.allCases {
+            for start in [0.3, 0.6] {
+                var input = Input()
+                input.settings = disabledSettings()
+                input.settings[edge] = EdgeConfiguration(action: .brightness, mode: .relative)
+                var levels = LevelAccumulator()
+                try levels.start(at: 70)
+                #expect(input.send([]) == .inactive)
+                #expect(input.along(edge, at: start) == .inactive)
+                let first = input.along(edge, at: start + 0.03)
+                #expect(try apply(first, to: &levels) == 73)
+                #expect(try apply(input.along(edge, at: start + 0.1), to: &levels) == 80)
+                #expect(try apply(input.along(edge, at: start), to: &levels) == 70)
+            }
+        }
+    }
+
+    @Test func smallFrameMovementsAccumulateWithoutPerFrameRounding() throws {
+        var input = Input()
+        input.settings.bottom.mode = .relative
+        input.begin(at: 0.3)
+        var levels = LevelAccumulator()
+        try levels.start(at: 70)
+        #expect(try apply(input.finger(0.33), to: &levels) == 73)
+        var result = 73
+        for step in 1...100 {
+            result = try #require(apply(input.finger(0.33 + Double(step) * 0.0001), to: &levels))
+        }
+        #expect(result == 74)
+        #expect(input.finger(0.34) == .active(edge: .bottom, action: .volume, change: nil))
+    }
+
+    @Test func sensitivityIsIndependentForEachSideAndIgnoredByAbsoluteMode() throws {
+        var settings = disabledSettings()
+        settings.bottom = EdgeConfiguration(action: .volume, mode: .relative, sensitivity: 0.5)
+        settings.right = EdgeConfiguration(action: .brightness, mode: .relative, sensitivity: 2)
+        for (edge, expected) in [(TrackpadEdge.bottom, 72), (.right, 78)] {
+            var input = Input(settings: settings)
+            #expect(input.send([]) == .inactive)
+            #expect(input.along(edge, at: 0.3) == .inactive)
+            var levels = LevelAccumulator()
+            try levels.start(at: 70)
+            #expect(try apply(input.along(edge, at: 0.34), to: &levels) == expected)
+        }
+        var absolute = Input()
+        absolute.settings.bottom.sensitivity = 3
+        absolute.begin(at: 0.3)
+        #expect(absolute.finger(0.5) == level(50))
+    }
+
+    @Test func changedModeOrSensitivityCancelsUntilLift() {
+        for changeMode in [false, true] {
+            var input = Input()
+            input.begin()
+            #expect(input.finger(0.5).isActive)
+            if changeMode { input.settings.bottom.mode = .relative }
+            else { input.settings.bottom.sensitivity = 2 }
+            #expect(input.finger(0.6) == .inactive)
+            #expect(input.finger(0.8) == .inactive)
+            #expect(input.send([]) == .inactive)
+            #expect(input.finger(0.3) == .inactive)
+            #expect(input.finger(0.4).isActive)
+        }
+    }
+
+    @Test func invalidSensitivityCannotActivateAnyAction() {
+        for value in [0.24, 3.01, Double.nan, Double.infinity] {
+            var input = Input()
+            input.settings.bottom.sensitivity = value
+            input.begin()
+            #expect(input.finger(0.5) == .inactive)
+        }
+    }
+
+    private func apply(_ update: GestureUpdate, to levels: inout LevelAccumulator) throws -> Int? {
+        guard case let .active(_, _, change?) = update else { return nil }
+        return try levels.apply(change)
     }
 }

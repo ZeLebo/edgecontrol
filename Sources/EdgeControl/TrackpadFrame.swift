@@ -10,11 +10,14 @@ struct TrackpadFrame: Sendable, Equatable {
     let contacts: [TrackpadContact]
 }
 
+enum LevelChange: Sendable, Equatable {
+    case absolute(Int)
+    /// Incremental percentage-point movement since the previous sample (first: since touch-down).
+    case relative(Double)
+}
+
 enum GestureUpdate: Sendable, Equatable {
     case inactive
-    case active(edge: TrackpadEdge, action: EdgeAction, percent: Int?)
-
-    var isActive: Bool {
-        if case .active = self { true } else { false }
-    }
+    case active(edge: TrackpadEdge, action: EdgeAction, change: LevelChange?)
+    var isActive: Bool { if case .active = self { true } else { false } }
 }

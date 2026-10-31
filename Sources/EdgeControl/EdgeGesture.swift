@@ -3,7 +3,7 @@ struct EdgeGesture {
         case waitingForLift
         case ready
         case candidate(start: TrackpadContact, edges: [TrackpadEdge])
-        case active(id: Int32, edge: TrackpadEdge, action: EdgeAction)
+        case active(id: Int32, edge: TrackpadEdge, configuration: EdgeConfiguration, coordinate: Double)
     }
 
     private var state = State.waitingForLift
@@ -34,7 +34,7 @@ struct EdgeGesture {
             if frame.contacts.isEmpty { return .inactive }
             guard frame.contacts.count == 1, let contact = frame.contacts.first else { return cancel() }
             let edges = TrackpadEdge.allCases.filter {
-                settings[$0] != .disabled && contains(contact, in: $0, width: settings.stripWidth)
+                settings[$0].action != .disabled && contains(contact, in: $0, width: settings.stripWidth)
             }
             guard !edges.isEmpty else { return cancel() }
             state = .candidate(start: contact, edges: edges)
@@ -49,16 +49,16 @@ struct EdgeGesture {
             guard let edge = activatedEdge(from: eligible, start: start, current: contact) else {
                 return .inactive
             }
-            let action = settings[edge]
-            state = .active(id: contact.id, edge: edge, action: action)
-            return update(contact, edge: edge, action: action)
+            let configuration = settings[edge]
+            return update(contact, edge: edge, configuration: configuration,
+                          previous: coordinate(of: start, along: edge))
 
-        case let .active(id, edge, action):
+        case let .active(id, edge, configuration, previous):
             guard frame.contacts.count == 1, let contact = frame.contacts.first,
                   contact.id == id, contains(contact, in: edge, width: settings.stripWidth) else {
                 return finish(frame)
             }
-            return update(contact, edge: edge, action: action)
+            return update(contact, edge: edge, configuration: configuration, previous: previous)
         }
     }
 
@@ -97,14 +97,26 @@ struct EdgeGesture {
         }
     }
 
+    private func coordinate(of contact: TrackpadContact, along edge: TrackpadEdge) -> Double {
+        edge.isHorizontal ? contact.x : contact.y
+    }
+
     private mutating func update(
-        _ contact: TrackpadContact, edge: TrackpadEdge, action: EdgeAction
+        _ contact: TrackpadContact, edge: TrackpadEdge, configuration: EdgeConfiguration, previous: Double
     ) -> GestureUpdate {
-        let coordinate = edge.isHorizontal ? contact.x : contact.y
-        let percent = Int((100 * min(1, max(0, (coordinate - 0.03) / 0.94))).rounded())
-        let changed = percent != lastPercent
-        lastPercent = percent
-        return .active(edge: edge, action: action, percent: changed ? percent : nil)
+        let coordinate = coordinate(of: contact, along: edge)
+        state = .active(id: contact.id, edge: edge, configuration: configuration, coordinate: coordinate)
+        let change: LevelChange?
+        switch configuration.mode {
+        case .absolute:
+            let percent = Int((100 * min(1, max(0, (coordinate - 0.03) / 0.94))).rounded())
+            change = percent == lastPercent ? nil : .absolute(percent)
+            lastPercent = percent
+        case .relative:
+            let delta = (coordinate - previous) * 100 * configuration.sensitivity
+            change = delta == 0 ? nil : .relative(delta)
+        }
+        return .active(edge: edge, action: configuration.action, change: change)
     }
 
     private mutating func cancel() -> GestureUpdate {
