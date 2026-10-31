@@ -102,6 +102,25 @@ final class AudioOutput {
         }
     }
 
+    func toggleMute() throws -> Bool {
+        try requireCurrentDevice()
+        guard !muteElements.isEmpty else { throw AudioOutputError("Output does not support mute control") }
+        let observed = muteElements.contains(kAudioObjectPropertyElementMain)
+            ? [kAudioObjectPropertyElementMain] : muteElements
+        let muted = try observed.allSatisfy {
+            try readUInt32(device, address(kAudioDevicePropertyMute, element: $0)) != 0
+        }
+        var value: UInt32 = muted ? 0 : 1
+        for element in muteElements {
+            try requireCurrentDevice()
+            var property = address(kAudioDevicePropertyMute, element: element)
+            try check(AudioObjectSetPropertyData(device, &property, 0, nil,
+                UInt32(MemoryLayout<UInt32>.size), &value), "Could not toggle mute, channel \(element)")
+        }
+        return !muted
+    }
+
+    /// Reports the scalar level; per-channel outputs use their mean. Mute is separate.
     func readVolumePercent() throws -> Int {
         try requireCurrentDevice()
         var sum: Float = 0

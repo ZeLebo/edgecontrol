@@ -1,53 +1,53 @@
 # EdgeControl
 
-EdgeControl is a macOS menu bar app for controlling volume, built-in display brightness, and media playback from the edges of the built-in trackpad.
+Control volume, display brightness, and media playback from the edges of the built-in trackpad. EdgeControl is a native Swift and AppKit menu bar app with no third-party dependencies.
 
-Slide one finger along an enabled edge. The cursor stays in place while the gesture is active. A compact on-screen symbol and level bar show the accepted value. Use the menu bar icon to open Settings, pause control, or quit.
+## Use
 
-## Controls
+Open the app and grant Accessibility access when prompted. The menu bar icon opens Settings and provides Pause, Resume, and Quit.
 
-Each of the four edges has its own action:
+By default, the bottom 5% of the trackpad controls volume and the right 5% controls built-in display brightness. Start moving one finger along an edge to adjust its level. Touching the edge alone does not change the level. The pointer stays still during an active slide. Lifting the finger, leaving the strip, or adding another finger ends the gesture.
 
-- **Volume** or **Brightness:** choose Absolute or Relative adjustment.
-- **Track Navigation:** slide right or up for the next track, left or down for the previous track.
-- **Seek:** slide right or up to skip forward 10 seconds, left or down to skip backward 10 seconds.
-- **Disabled:** leave the edge available for ordinary trackpad use.
+In Settings, select any of the four edges and choose its controls:
 
-Absolute adjustment maps the full trackpad width or height to 0% through 100%. Relative adjustment starts from the current system level, regardless of the initial touch position. At 1x sensitivity, movement across the trackpad changes a level by 100 percentage points. Sensitivity is adjustable from 0.25x to 3x for Relative, Track Navigation, and Seek.
+- **Absolute:** position selects the level, with reachable 0% and 100% endpoints.
+- **Relative:** movement adds to or subtracts from the current system level. Touching at a different position does not cause a jump. Sensitivity is separate for each edge, from 0.25x to 3x.
+- **Track Navigation / Seek:** a slide sends Previous or Next Track, or skips backward or forward by 10 seconds. Each slide sends one command; lift and slide again to repeat. Right or up moves forward.
+- **Double tap:** the first and last 12% of each edge are separate zones. Choose None, Mute / Unmute, Play / Pause, Previous Track, Next Track, or a 10-second skip. Purple endpoints on the diagram mark configured zones. Both ends of the default volume edge toggle mute.
+- **Feedback:** a compact icon and bar show level changes. Haptic feedback can be turned off. Edge width is adjustable from 3% to 15%.
 
-Media gestures send one command after deliberate movement; lift your finger before sending another. The current media player must support the requested command. Haptic feedback can be turned off in Settings. Edge width is adjustable from 3% to 15%.
+Settings are saved automatically. Existing assignments are imported once from the earlier app name.
 
-The default assignments are Volume on the bottom edge and Brightness on the right edge. Both use Absolute adjustment. Changes are saved automatically. Settings from the previous prototype are imported once without changing the original record.
+## Build
 
-## Build and run
-
-Requires an Apple silicon Mac, macOS 14 or later, and Xcode with the macOS SDK.
+Requires an Apple silicon Mac with a built-in trackpad, macOS 14 or later, and a selected Xcode toolchain with Swift 6.2 or later.
 
 ```sh
+xcrun swift test
 ./scripts/build-app.sh
 open build/EdgeControl.app
 ```
 
-Grant Accessibility access when requested so EdgeControl can hold the cursor still during control gestures. Resume from the menu after granting access. Pause, sleep, lock, an extra finger, or leaving the edge ends control.
+The script creates an ad hoc signed app. Release downloads are also ad hoc signed and are not notarized; building locally is an option if macOS blocks a download.
 
-The app uses macOS private APIs for built-in trackpad input, built-in display brightness, and media commands. Support can change between macOS releases. External trackpads and external display brightness are outside this version's scope.
-
-## Verify
+To inspect trackpad coordinates without changing levels or sending media commands:
 
 ```sh
-swift test
+build/EdgeControl.app/Contents/MacOS/EdgeControl --diagnose
 ```
 
-Tests use synthetic contacts and pure command mappings. They do not change system volume or brightness, send media commands, or generate haptics.
+Diagnostic mode still uses the input and pointer capture permissions. Quit the regular instance before running another copy.
 
-```sh
-.build/release/EdgeControl --diagnose
-```
+## Compatibility
 
-Diagnostic mode reports contacts and shows feedback without changing levels or sending commands. It still requires Accessibility access for cursor capture.
+Volume requires an audio output with writable system volume. Brightness controls the built-in display. External trackpads and external display brightness are outside the current scope. Media commands depend on the active player, and seek support varies by player. macOS may suppress haptic feedback.
 
-```sh
-.build/release/EdgeControl --render-previews build/previews
-```
+Background touch input, display brightness, and media commands use private Apple frameworks. A macOS update can change their behavior. No driver, entitled host process, or background service is installed.
 
-Preview mode renders Settings and feedback images without starting trackpad input or changing system outputs.
+## Source and releases
+
+The repository includes application source, tests, the source icon, and build tools. Local notes, agent files, preferences, caches, and build outputs are excluded by a source allowlist.
+
+Before a commit, run `python3 scripts/audit-public-tree.py` to inspect the Git index. Use `--head` for the latest commit or `--history` for all reachable commits and tags. The audit rejects files outside the allowlist, machine paths, email addresses in source, common access tokens, private keys, and Git identities without a GitHub noreply address.
+
+The history starts with a README-only commit. Functional stages have their own tags, starting with volume control in `v1.0`. Commit and tag dates record when those stages were committed; they are not backdated.

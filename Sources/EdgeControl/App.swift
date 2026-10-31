@@ -62,11 +62,13 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private let hud = LevelHUD()
     private let haptics = HapticFeedback()
     private var gesture = EdgeGesture()
+    private var taps = DoubleTapGesture()
     private var level = LevelAccumulator()
     private var mediaMotion = MediaMotion()
     private var settingsWindow: SettingsWindow?
     private var activeAction: EdgeAction?
     private var lastAppliedLevel: Int?
+    private var clickSuppressionUntil: Double?
     private var controlErrors: [EdgeAction: String] = [:]
     private var menu: StatusMenu?
     private let diagnostic: Bool
@@ -133,6 +135,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private func stopInput() {
         acceptedAfter = .infinity
         gesture.reset()
+        taps.reset()
         level.reset()
         mediaMotion.reset()
         haptics.reset()
@@ -141,6 +144,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         hud.hide()
         activeAction = nil
         lastAppliedLevel = nil
+        clickSuppressionUntil = nil
         lastFrameAt = nil
     }
 
@@ -153,7 +157,11 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         }
         lastFrameAt = now
         let update = gesture.process(frame, settings: settings.settings)
+        let tap = taps.process(frame, settings: settings.settings, sliding: update.isActive)
+        clickSuppressionUntil = tap.suppressionUntil
+        cursor.setClickSuppression(tap.suppressClicks && (tap.suppressionUntil.map { $0 > now } ?? false))
         do {
+            if let command = tap.command { try perform(command.action) }
             switch update {
             case .inactive:
                 cursor.release()
@@ -229,20 +237,33 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func perform(_ action: MediaAction) throws {
+    private func perform(_ action: TapAction) throws {
+        guard action != .none else { return }
         if diagnostic {
             print("action=\(action.rawValue); no command requested")
             hud.showSymbol(action.symbol, accessibilityLabel: "Diagnostic: \(action.title)")
             return
         }
-        try media.perform(action)
-        hud.showSymbol(action.symbol, accessibilityLabel: action.title)
+        if action == .mute {
+            try audio.refresh()
+            let muted = try audio.toggleMute()
+            controlErrors[.volume] = nil
+            hud.showSymbol(muted ? "speaker.slash.fill" : "speaker.wave.2.fill",
+                           accessibilityLabel: muted ? "Muted" : "Unmuted")
+        } else {
+            try media.perform(action)
+            hud.showSymbol(action.symbol, accessibilityLabel: action.title)
+        }
         haptics.actionPerformed(enabled: settings.settings.hapticsEnabled)
         updateMenu()
     }
 
     @objc private func checkInput() {
         let now = ProcessInfo.processInfo.systemUptime
+        if let deadline = clickSuppressionUntil, now >= deadline {
+            cursor.setClickSuppression(false)
+            clickSuppressionUntil = nil
+        }
         if cursor.isCaptured, let lastFrameAt, now - lastFrameAt >= 0.5 {
             fail("Trackpad signal was lost; resume to retry")
         }

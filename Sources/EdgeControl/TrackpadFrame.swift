@@ -22,3 +22,15 @@ enum GestureUpdate: Sendable, Equatable {
     var isActive: Bool { if case .active = self { true } else { false } }
 }
 
+struct TapCommand: Sendable, Equatable {
+    let edge: TrackpadEdge
+    let end: TapZoneEnd
+    let action: TapAction
+}
+
+struct TapUpdate: Sendable, Equatable {
+    let command: TapCommand?
+    let suppressClicks: Bool
+    let suppressionUntil: Double?
+    static let inactive = TapUpdate(command: nil, suppressClicks: false, suppressionUntil: nil)
+}

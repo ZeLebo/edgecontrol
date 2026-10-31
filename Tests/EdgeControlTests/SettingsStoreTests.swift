@@ -13,14 +13,14 @@ struct SettingsStoreTests {
         }
     }
 
-    @Test func savesAllAssignmentsModesAndSensitivityBeforeNotifying() throws {
+    @Test func savesAllAssignmentsModesAndTapActionsBeforeNotifying() throws {
         try withDefaults { defaults in
             let store = SettingsStore(defaults: defaults, previousDefaults: nil)
             var settings = EdgeSettings.defaults
-            settings.top = EdgeConfiguration(action: .brightness, mode: .relative, sensitivity: 0.25)
-            settings.right = EdgeConfiguration(action: .disabled)
-            settings.bottom = EdgeConfiguration(action: .seek, sensitivity: 3)
-            settings.left = EdgeConfiguration(action: .volume, mode: .relative, sensitivity: 1.5)
+            settings.top = EdgeConfiguration(action: .brightness, mode: .relative, sensitivity: 0.25, startTap: .seekBackward, endTap: .seekForward)
+            settings.right = EdgeConfiguration(action: .disabled, startTap: .playPause)
+            settings.bottom = EdgeConfiguration(action: .seek, sensitivity: 3, startTap: .previousTrack, endTap: .nextTrack)
+            settings.left = EdgeConfiguration(action: .volume, mode: .relative, sensitivity: 1.5, startTap: .mute, endTap: .none)
             settings.stripWidth = 0.15
             settings.hapticsEnabled = false
             var notifications = 0
@@ -114,6 +114,8 @@ struct SettingsStoreTests {
                 #expect(store.settings.stripWidth == 0.09)
                 #expect(store.settings.left.mode == .absolute)
                 #expect(store.settings.left.sensitivity == 1)
+                #expect(store.settings.left.startTap == .mute)
+                #expect(store.settings.left.endTap == .mute)
                 #expect(store.settings.hapticsEnabled)
                 #expect(defaults.data(forKey: SettingsStore.storageKey) != nil)
                 #expect(previous.data(forKey: SettingsStore.legacyStorageKey) == record)
@@ -159,7 +161,7 @@ struct SettingsStoreTests {
         }
     }
 
-    @Test func earlierV3RecordsKeepRelativeSettingsWhenHapticsAreAdded() throws {
+    @Test func earlierV3RecordsKeepRelativeSettingsWhenNewControlsAreAdded() throws {
         try withDefaults { defaults in
             for savedHaptics in [nil, false, true] as [Bool?] {
                 var original = EdgeSettings.defaults
@@ -167,6 +169,12 @@ struct SettingsStoreTests {
                 original.bottom.sensitivity = 1.75
                 original.stripWidth = 0.09
                 var record = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
+                for edge in TrackpadEdge.allCases {
+                    var configuration = try #require(record[edge.rawValue] as? [String: Any])
+                    configuration.removeValue(forKey: "startTap")
+                    configuration.removeValue(forKey: "endTap")
+                    record[edge.rawValue] = configuration
+                }
                 record["hapticsEnabled"] = savedHaptics
                 let data = try JSONSerialization.data(withJSONObject: record)
                 defaults.set(data, forKey: SettingsStore.storageKey)
@@ -175,21 +183,32 @@ struct SettingsStoreTests {
                 #expect(store.settings.bottom.mode == .relative)
                 #expect(store.settings.bottom.sensitivity == 1.75)
                 #expect(store.settings.stripWidth == 0.09)
+                #expect(store.settings.bottom.startTap == .mute)
+                #expect(store.settings.bottom.endTap == .mute)
+                #expect(store.settings.right.startTap == .none)
                 #expect(store.settings.hapticsEnabled == (savedHaptics ?? true))
                 #expect(defaults.data(forKey: SettingsStore.storageKey) == data)
             }
         }
     }
 
-    @Test func corruptHapticsFieldIsNotTreatedAsMissingUpgradeField() throws {
+    @Test func corruptNewFieldsAreNotTreatedAsMissingUpgradeFields() throws {
         try withDefaults { defaults in
-            var record = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(EdgeSettings.defaults)) as? [String: Any])
-            record["hapticsEnabled"] = NSNull()
-            let data = try JSONSerialization.data(withJSONObject: record)
-            defaults.set(data, forKey: SettingsStore.storageKey)
-            let store = SettingsStore(defaults: defaults, previousDefaults: nil)
-            #expect(store.loadError != nil)
-            #expect(defaults.data(forKey: SettingsStore.storageKey) == data)
+            let encoded = try JSONEncoder().encode(EdgeSettings.defaults)
+            for field in ["hapticsEnabled", "startTap", "endTap"] {
+                var record = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+                if field == "hapticsEnabled" { record[field] = NSNull() }
+                else {
+                    var bottom = try #require(record["bottom"] as? [String: Any])
+                    bottom[field] = NSNull()
+                    record["bottom"] = bottom
+                }
+                let data = try JSONSerialization.data(withJSONObject: record)
+                defaults.set(data, forKey: SettingsStore.storageKey)
+                let store = SettingsStore(defaults: defaults, previousDefaults: nil)
+                #expect(store.loadError != nil)
+                #expect(defaults.data(forKey: SettingsStore.storageKey) == data)
+            }
         }
     }
 

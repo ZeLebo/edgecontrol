@@ -25,41 +25,58 @@ def allowed(path):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--head', action='store_true', help='Inspect committed HEAD instead of index')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--head', action='store_true', help='Inspect committed HEAD instead of index')
+    mode.add_argument('--history', action='store_true', help='Inspect all reachable commits and tag identities')
     args = parser.parse_args()
     errors = []
-    if args.head:
-        entries = git('ls-tree', '-rz', '--full-tree', 'HEAD').split(b'\0')
-    else:
-        entries = git('ls-files', '--stage', '-z').split(b'\0')
+    revisions = git('rev-list', '--all').decode().splitlines() if args.history else ['HEAD' if args.head else None]
     count = 0
-    for entry in entries:
-        if not entry:
-            continue
-        metadata, raw_path = entry.split(b'\t', 1)
-        path = raw_path.decode('utf-8')
-        mode, _, stage = metadata.split()
-        if not allowed(path):
-            errors.append(f'{path}: not in public source allowlist')
-        if mode not in (b'100644', b'100755'):
-            errors.append(f'{path}: non-regular file')
-        if not args.head and stage != b'0':
-            errors.append(f'{path}: unresolved index stage')
-        data = git('show', f'HEAD:{path}' if args.head else f':{path}')
-        for reason, pattern in RULES.items():
-            if pattern.search(data):
-                errors.append(f'{path}: {reason}')
-        count += 1
-    if args.head:
-        for email in git('show', '-s', '--format=%ae%n%ce', 'HEAD').decode().splitlines():
-            if not email.endswith('@users.noreply.github.com'):
-                errors.append('HEAD: author and committer must use a GitHub noreply address')
+    inspected = set()
+    for revision in revisions:
+        entries = (git('ls-tree', '-rz', '--full-tree', revision) if revision
+                   else git('ls-files', '--stage', '-z')).split(b'\0')
+        for entry in entries:
+            if not entry:
+                continue
+            metadata, raw_path = entry.split(b'\t', 1)
+            path = raw_path.decode('utf-8')
+            file_mode, middle, last = metadata.split()
+            object_id = last if revision else middle
+            key = (path, file_mode, object_id)
+            if key in inspected:
+                continue
+            inspected.add(key)
+            if not allowed(path):
+                errors.append(f'{path}: not in public source allowlist')
+            if file_mode not in (b'100644', b'100755'):
+                errors.append(f'{path}: non-regular file')
+            if not revision and last != b'0':
+                errors.append(f'{path}: unresolved index stage')
+            if file_mode not in (b'100644', b'100755'):
+                continue
+            data = git('cat-file', 'blob', object_id.decode())
+            for reason, pattern in RULES.items():
+                if pattern.search(data):
+                    errors.append(f'{path}: {reason}')
+            count += 1
+        if revision:
+            for email in git('show', '-s', '--format=%ae%n%ce', revision).decode().splitlines():
+                if not email.endswith('@users.noreply.github.com'):
+                    errors.append(f'{revision}: author and committer must use a GitHub noreply address')
+    if args.history:
+        tags = git('for-each-ref', '--format=%(refname:short)%09%(taggeremail)', 'refs/tags').decode().splitlines()
+        for tag in tags:
+            name, email = tag.split('\t')
+            if email and not email.strip('<>').endswith('@users.noreply.github.com'):
+                errors.append(f'{name}: tagger must use a GitHub noreply address')
     if not count:
         errors.append('No public files selected')
     if errors:
         print('\n'.join(errors), file=sys.stderr)
         return 1
-    print(f'Audit passed: {count} public source files; no private paths, emails, keys, or tokens.')
+    scope = f'{len(revisions)} commits, {count} source revisions' if args.history else f'{count} public source files'
+    print(f'Audit passed: {scope}; no private paths, emails, keys, or tokens.')
     return 0
 
 if __name__ == '__main__':

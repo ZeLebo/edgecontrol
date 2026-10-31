@@ -2,36 +2,18 @@ import CoreFoundation
 import Darwin
 import Foundation
 
-enum MediaAction: String, Equatable {
-    case previousTrack, nextTrack, seekBackward, seekForward
-    var title: String {
-        switch self {
-        case .previousTrack: "Previous Track"
-        case .nextTrack: "Next Track"
-        case .seekBackward: "Seek Backward 10 Seconds"
-        case .seekForward: "Seek Forward 10 Seconds"
-        }
-    }
-    var symbol: String {
-        switch self {
-        case .previousTrack: "backward.end.fill"
-        case .nextTrack: "forward.end.fill"
-        case .seekBackward: "gobackward.10"
-        case .seekForward: "goforward.10"
-        }
-    }
-}
-
 struct MediaRequest: Equatable {
     let command: UInt32
     let interval: Double?
 
-    init(action: MediaAction) {
+    init(action: TapAction) throws {
         switch action {
+        case .playPause: command = 2; interval = nil
         case .nextTrack: command = 4; interval = nil
         case .previousTrack: command = 5; interval = nil
         case .seekForward: command = 17; interval = 10
         case .seekBackward: command = 18; interval = 10
+        case .none, .mute: throw MediaControlError("This action is not a media command")
         }
     }
 }
@@ -40,7 +22,7 @@ struct MediaMotion {
     private var distance = 0.0
     private var fired = false
 
-    mutating func consume(_ change: LevelChange, action: EdgeAction) throws -> MediaAction? {
+    mutating func consume(_ change: LevelChange, action: EdgeAction) throws -> TapAction? {
         guard case let .relative(delta) = change, delta.isFinite,
               action == .tracks || action == .seek else {
             throw MediaControlError("Media gestures require finite relative movement")
@@ -60,8 +42,8 @@ struct MediaMotion {
 final class MediaController {
     private var api: MediaRemoteAPI?
 
-    func perform(_ action: MediaAction) throws {
-        let request = MediaRequest(action: action)
+    func perform(_ action: TapAction) throws {
+        let request = try MediaRequest(action: action)
         let api = try self.api ?? MediaRemoteAPI()
         self.api = api
         let options: CFDictionary?

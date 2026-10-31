@@ -9,6 +9,7 @@ final class CursorCapture {
 
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
+    private var clickFilter = CursorClickFilter()
 
     static var hasPermission: Bool { AXIsProcessTrusted() }
 
@@ -22,6 +23,7 @@ final class CursorCapture {
         guard Self.hasPermission else { throw CursorCaptureError.permission }
         let eventTypes: [CGEventType] = [
             .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged,
+            .leftMouseDown, .leftMouseUp,
         ]
         let mask = eventTypes.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
         guard let newTap = CGEvent.tapCreate(
@@ -66,8 +68,15 @@ final class CursorCapture {
 
     func release() { isCaptured = false }
 
-    func stop() {
+    func setClickSuppression(_ enabled: Bool) { clickFilter.setSuppression(enabled) }
+
+    func releaseAll() {
         release()
+        clickFilter.setSuppression(false)
+    }
+
+    func stop() {
+        releaseAll()
         if let tap {
             CGEvent.tapEnable(tap: tap, enable: false)
             CFMachPortInvalidate(tap)
@@ -75,16 +84,18 @@ final class CursorCapture {
         if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
         source = nil
         tap = nil
+        clickFilter.reset()
     }
 
     isolated deinit { stop() }
 
     private func shouldDrop(type: CGEventType) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            release()
+            releaseAll()
             onError?("Cursor event interception was disabled")
             return false
         }
+        if type == .leftMouseDown || type == .leftMouseUp { return clickFilter.shouldDrop(type) }
         // Runtime acceptance must confirm that dropping session motion also freezes the physical cursor.
         return isCaptured
     }
@@ -104,3 +115,30 @@ private enum CursorCaptureError: LocalizedError {
     }
 }
 
+struct CursorClickFilter {
+    private var suppressionRequested = false
+    private var blockedLeftDown = false
+
+    mutating func setSuppression(_ enabled: Bool) { suppressionRequested = enabled }
+
+    mutating func shouldDrop(_ type: CGEventType) -> Bool {
+        switch type {
+        case .leftMouseDown:
+            if suppressionRequested || blockedLeftDown {
+                blockedLeftDown = true
+                return true
+            }
+            return false
+        case .leftMouseUp:
+            guard blockedLeftDown else { return false }
+            blockedLeftDown = false
+            return true
+        default: return false
+        }
+    }
+
+    mutating func reset() {
+        suppressionRequested = false
+        blockedLeftDown = false
+    }
+}

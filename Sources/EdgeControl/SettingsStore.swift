@@ -78,7 +78,11 @@ private struct PreviousSettings: Decodable {
     var currentSettings: EdgeSettings {
         var result = EdgeSettings.defaults
         for (edge, action) in [(TrackpadEdge.top, top), (.right, right), (.bottom, bottom), (.left, left)] {
-            result[edge] = EdgeConfiguration(action: action.current)
+            result[edge] = EdgeConfiguration(
+                action: action.current,
+                startTap: action == .volume ? .mute : .none,
+                endTap: action == .volume ? .mute : .none
+            )
         }
         result.stripWidth = stripWidth
         return result

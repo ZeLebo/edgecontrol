@@ -3,14 +3,17 @@ import Testing
 
 struct MediaControllerTests {
     @Test func distinguishesTracksFromTenSecondSeek() throws {
-        #expect(MediaRequest(action: .nextTrack).command == 4)
-        #expect(MediaRequest(action: .previousTrack).command == 5)
-        let forward = MediaRequest(action: .seekForward)
+        #expect(try MediaRequest(action: .nextTrack).command == 4)
+        #expect(try MediaRequest(action: .previousTrack).command == 5)
+        #expect(try MediaRequest(action: .playPause).command == 2)
+        let forward = try MediaRequest(action: .seekForward)
         #expect(forward.command == 17)
         #expect(forward.interval == 10)
-        let backward = MediaRequest(action: .seekBackward)
+        let backward = try MediaRequest(action: .seekBackward)
         #expect(backward.command == 18)
         #expect(backward.interval == 10)
+        #expect(throws: MediaControlError.self) { try MediaRequest(action: .mute) }
+        #expect(throws: MediaControlError.self) { try MediaRequest(action: .none) }
     }
 
     @Test func deliberateMovementSendsOnlyOneCommandPerGesture() throws {
