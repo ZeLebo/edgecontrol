@@ -3,7 +3,7 @@ import AppKit
 @MainActor
 final class LevelHUD {
     private let panel: HUDPanel
-    private let content = LevelView(frame: NSRect(x: 0, y: 0, width: 292, height: 92))
+    private let content = HUDContentView(frame: NSRect(x: 0, y: 0, width: 220, height: 52))
     private var hideTimer: Timer?
 
     init() {
@@ -21,17 +21,35 @@ final class LevelHUD {
     }
 
     func show(action: EdgeAction, percent: Int, diagnostic: Bool = false) {
-        guard action != .disabled, (0...100).contains(percent) else { return }
+        guard action.isLevel, (0...100).contains(percent) else { return }
+        prepare(width: 220)
+        content.configure(action: action, percent: percent, diagnostic: diagnostic)
+        present()
+    }
+
+    func showSymbol(_ symbol: String, accessibilityLabel: String) {
+        prepare(width: 64)
+        content.configure(symbol: symbol, accessibilityLabel: accessibilityLabel)
+        present()
+        finish()
+    }
+
+    private func prepare(width: CGFloat) {
         hideTimer?.invalidate()
         hideTimer = nil
-        content.configure(action: action, percent: percent, diagnostic: diagnostic)
+        panel.setContentSize(NSSize(width: width, height: 52))
+        content.frame = NSRect(x: 0, y: 0, width: width, height: 52)
+    }
+
+    private func present() {
         let pointer = NSEvent.mouseLocation
         if let screen = NSScreen.screens.first(where: { $0.frame.contains(pointer) }) ?? NSScreen.main {
             let frame = screen.visibleFrame
             panel.setFrameOrigin(NSPoint(x: frame.midX - panel.frame.width / 2, y: frame.minY + 72))
         }
-        panel.alphaValue = 1
         panel.orderFrontRegardless()
+        // Draw the latest target in this update, without a control's interpolation or animation.
+        content.displayIfNeeded()
     }
 
     func finish() {
@@ -45,19 +63,23 @@ final class LevelHUD {
         hideTimer?.invalidate()
         hideTimer = nil
         panel.orderOut(nil)
-        panel.alphaValue = 1
     }
 
     @objc private func hideAfterGesture() {
         hideTimer = nil
-        // Immediate hiding also avoids stale animation completions hiding a new gesture.
         hide()
     }
 
     func renderPreview(to url: URL, action: EdgeAction = .volume, appearance: NSAppearance.Name = .aqua) throws {
         panel.appearance = NSAppearance(named: appearance)
         content.appearance = panel.appearance
-        content.configure(action: action, percent: 64, diagnostic: false)
+        if action.isLevel {
+            prepare(width: 220)
+            content.configure(action: action, percent: 64, diagnostic: false)
+        } else {
+            prepare(width: 64)
+            content.configure(symbol: action.symbol, accessibilityLabel: action.title)
+        }
         content.layoutSubtreeIfNeeded()
         guard let bitmap = content.bitmapImageRepForCachingDisplay(in: content.bounds) else {
             throw HUDPreviewError()
@@ -76,54 +98,82 @@ private final class HUDPanel: NSPanel {
 }
 
 @MainActor
-private final class LevelView: NSView {
+private final class HUDContentView: NSView {
     private let icon = NSImageView()
-    private let title = NSTextField(labelWithString: "Volume")
-    private let value = NSTextField(labelWithString: "64%")
-    private let bar = NSProgressIndicator()
-    private var accent = NSColor.systemBlue
+    private let meter = HUDMeterView(frame: NSRect(x: 52, y: 22, width: 150, height: 8))
+    private var symbol: String?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        icon.frame = NSRect(x: 22, y: 41, width: 28, height: 28)
         icon.imageScaling = .scaleProportionallyDown
-        title.frame = NSRect(x: 62, y: 44, width: 145, height: 22)
-        title.font = .systemFont(ofSize: 15, weight: .medium)
-        value.frame = NSRect(x: 205, y: 41, width: 65, height: 26)
-        value.font = .monospacedDigitSystemFont(ofSize: 20, weight: .semibold)
-        value.alignment = .right
-        bar.frame = NSRect(x: 22, y: 22, width: 248, height: 8)
-        bar.style = .bar
-        bar.isIndeterminate = false
-        bar.minValue = 0
-        bar.maxValue = 100
-        for view in [icon, title, value, bar] { addSubview(view) }
+        icon.contentTintColor = .labelColor
+        addSubview(icon)
+        addSubview(meter)
         setAccessibilityElement(true)
     }
 
     required init?(coder: NSCoder) { nil }
 
     func configure(action: EdgeAction, percent: Int, diagnostic: Bool) {
-        accent = action == .brightness ? .systemOrange : .systemBlue
-        let image = NSImage(systemSymbolName: action.symbol, accessibilityDescription: action.title)
-        icon.image = image?.withSymbolConfiguration(.init(pointSize: 24, weight: .medium))
-        icon.contentTintColor = accent
-        title.stringValue = diagnostic ? "Diagnostic: \(action.title.lowercased())" : action.title
-        title.font = .systemFont(ofSize: diagnostic ? 12 : 15, weight: .medium)
-        value.stringValue = "\(percent)%"
-        bar.doubleValue = Double(percent)
-        setAccessibilityLabel("\(title.stringValue), \(percent) percent")
+        icon.frame = NSRect(x: 17, y: 16, width: 20, height: 20)
+        setSymbol(action.symbol)
+        meter.isHidden = false
+        meter.setLevel(percent)
+        let prefix = diagnostic ? "Diagnostic target " : ""
+        setAccessibilityLabel("\(prefix)\(action.title), \(percent) percent")
+        needsDisplay = true
+    }
+
+    func configure(symbol: String, accessibilityLabel: String) {
+        icon.frame = NSRect(x: (bounds.width - 24) / 2, y: 14, width: 24, height: 24)
+        setSymbol(symbol)
+        meter.isHidden = true
+        setAccessibilityLabel(accessibilityLabel)
+        needsDisplay = true
+    }
+
+    private func setSymbol(_ name: String) {
+        guard symbol != name else { return }
+        symbol = name
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
+        icon.image = image?.withSymbolConfiguration(.init(pointSize: 20, weight: .medium))
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let shape = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 18, yRadius: 18)
+        NSColor.windowBackgroundColor.withAlphaComponent(0.94).setFill()
+        shape.fill()
+        NSColor.separatorColor.withAlphaComponent(0.3).setStroke()
+        shape.lineWidth = 0.5
+        shape.stroke()
+    }
+}
+
+@MainActor
+final class HUDMeterView: NSView {
+    private(set) var percent = 0
+
+    var filledRect: NSRect {
+        NSRect(x: bounds.minX, y: bounds.minY, width: bounds.width * CGFloat(percent) / 100, height: bounds.height)
+    }
+
+    func setLevel(_ percent: Int) {
+        self.percent = percent
         needsDisplay = true
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.windowBackgroundColor.withAlphaComponent(0.97).setFill()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 20, yRadius: 20).fill()
-        NSColor.separatorColor.setStroke()
-        NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 20, yRadius: 20).stroke()
+        NSColor.labelColor.withAlphaComponent(0.16).setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2).fill()
+        let fill = filledRect
+        if fill.width > 0 {
+            NSColor.labelColor.withAlphaComponent(0.9).setFill()
+            let radius = min(fill.width, fill.height) / 2
+            NSBezierPath(roundedRect: fill, xRadius: radius, yRadius: radius).fill()
+        }
     }
 }
 
 private struct HUDPreviewError: LocalizedError {
-    var errorDescription: String? { "Could not save the level preview" }
+    var errorDescription: String? { "Unable to save the level indicator preview" }
 }

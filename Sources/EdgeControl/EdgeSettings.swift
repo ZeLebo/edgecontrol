@@ -24,6 +24,8 @@ enum EdgeAction: String, Codable, CaseIterable, Sendable {
         }
     }
 
+    var isLevel: Bool { self == .volume || self == .brightness }
+
     var symbol: String {
         switch self {
         case .disabled: "minus"
