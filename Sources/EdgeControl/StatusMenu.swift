@@ -9,15 +9,18 @@ final class StatusMenu: NSObject {
     private let onTogglePause: () -> Void
     private let onQuit: () -> Void
     private let onRequestPermission: () -> Void
+    private let onOpenSettings: () -> Void
 
     init(
         onTogglePause: @escaping () -> Void,
         onQuit: @escaping () -> Void,
-        onRequestPermission: @escaping () -> Void
+        onRequestPermission: @escaping () -> Void,
+        onOpenSettings: @escaping () -> Void
     ) {
         self.onTogglePause = onTogglePause
         self.onQuit = onQuit
         self.onRequestPermission = onRequestPermission
+        self.onOpenSettings = onOpenSettings
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
 
@@ -53,6 +56,9 @@ final class StatusMenu: NSObject {
         pauseItem.target = self
         pauseItem.action = #selector(togglePause)
         menu.addItem(pauseItem)
+        let settingsItem = NSMenuItem(title: "Settings…", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        menu.addItem(settingsItem)
         let quitItem = NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q")
         quitItem.target = self
         menu.addItem(quitItem)
@@ -73,4 +79,5 @@ final class StatusMenu: NSObject {
     @objc private func togglePause() { onTogglePause() }
     @objc private func quit() { onQuit() }
     @objc private func requestPermission() { onRequestPermission() }
+    @objc private func openSettings() { onOpenSettings() }
 }

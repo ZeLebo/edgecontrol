@@ -7,11 +7,19 @@ enum EdgeControlMain {
     static func main() {
         let arguments = Array(CommandLine.arguments.dropFirst())
         if arguments == ["--help"] {
-            print("Usage: EdgeControl [--diagnose]\n--diagnose: show samples and target levels without changing volume or brightness.")
+            print("Usage: EdgeControl [--diagnose | --render-previews DIRECTORY]\n--diagnose: show samples and target levels without changing volume or brightness.")
+            return
+        }
+        if arguments.count == 2, arguments[0] == "--render-previews" {
+            do { try renderPreviews(at: URL(fileURLWithPath: arguments[1], isDirectory: true)) }
+            catch {
+                FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
+                exit(1)
+            }
             return
         }
         guard arguments.isEmpty || arguments == ["--diagnose"] else {
-            FileHandle.standardError.write(Data("Usage: EdgeControl [--diagnose]\n".utf8))
+            FileHandle.standardError.write(Data("Usage: EdgeControl [--diagnose | --render-previews DIRECTORY]\n".utf8))
             exit(2)
         }
         let app = NSApplication.shared
@@ -19,6 +27,24 @@ enum EdgeControlMain {
         app.setActivationPolicy(.accessory)
         app.delegate = controller
         withExtendedLifetime(controller) { app.run() }
+    }
+
+    @MainActor
+    private static func renderPreviews(at directory: URL) throws {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let app = NSApplication.shared
+        app.setActivationPolicy(.prohibited)
+        let domain = "local.edgecontrol.preview.\(UUID().uuidString)"
+        guard let defaults = UserDefaults(suiteName: domain) else { return }
+        defer { defaults.removePersistentDomain(forName: domain) }
+        let store = SettingsStore(defaults: defaults)
+        let window = SettingsWindow(store: store)
+        for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
+            app.appearance = NSAppearance(named: appearance)
+            try window.renderPreview(to: directory.appendingPathComponent("settings-\(name).png"), appearance: appearance)
+        }
+        window.close()
+        print("Previews saved: \(directory.path)")
     }
 }
 
@@ -28,7 +54,9 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private let cursor = CursorCapture()
     private let audio = AudioOutput()
     private let brightness = BrightnessOutput()
+    private let settings = SettingsStore()
     private var gesture = EdgeGesture()
+    private var settingsWindow: SettingsWindow?
     private var activeAction: EdgeAction?
     private var controlErrors: [EdgeAction: String] = [:]
     private var menu: StatusMenu?
@@ -49,13 +77,15 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         menu = StatusMenu(
             onTogglePause: { [weak self] in self?.togglePause() },
             onQuit: { NSApplication.shared.terminate(nil) },
-            onRequestPermission: { [weak self] in self?.requestPermission() }
+            onRequestPermission: { [weak self] in self?.requestPermission() },
+            onOpenSettings: { [weak self] in self?.openSettings() }
         )
         input.onFrame = { [weak self] frame in self?.handle(frame) }
         input.onError = { [weak self] message in self?.fail(message) }
         cursor.onError = { [weak self] message in self?.fail(message) }
         audio.onChange = { [weak self] in self?.outputChanged(.volume) }
         brightness.onChange = { [weak self] in self?.outputChanged(.brightness) }
+        settings.onChange = { [weak self] _ in self?.startInput() }
         observeSession()
         let timer = Timer(timeInterval: 0.1, target: self, selector: #selector(checkInput), userInfo: nil, repeats: true)
         RunLoop.main.add(timer, forMode: .common)
@@ -74,6 +104,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         stopInput()
         audio.stop()
         brightness.stop()
+        settingsWindow?.close()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         DistributedNotificationCenter.default().removeObserver(self)
         menu?.remove()
@@ -120,11 +151,13 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             return
         }
         lastFrameAt = now
-        let update = gesture.process(frame, settings: EdgeSettings.defaults)
+        let update = gesture.process(frame, settings: settings.settings)
         switch update {
         case .inactive:
             cursor.release()
-            activeAction = nil
+            if activeAction != nil {
+                activeAction = nil
+            }
         case let .active(_, action, percent):
             do {
                 if activeAction == nil {
@@ -163,6 +196,11 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             print("contacts=\(frame.contacts.count) active=\(update.isActive) \(positions)")
             lastDiagnosticAt = now
         }
+    }
+
+    private func openSettings() {
+        if settingsWindow == nil { settingsWindow = SettingsWindow(store: settings) }
+        settingsWindow?.show()
     }
 
     private func outputChanged(_ action: EdgeAction) {
@@ -210,7 +248,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private func updateMenu() {
         let unavailable = EdgeAction.allCases.first { action in
             action != .disabled && controlErrors[action] != nil &&
-                TrackpadEdge.allCases.contains { EdgeSettings.defaults[$0] == action }
+                TrackpadEdge.allCases.contains { settings.settings[$0] == action }
         }
         let warning = unavailable.flatMap { action in controlErrors[action].map { "\(action.title): \($0)" } }
         let status = errorMessage ?? (!suspensions.isEmpty ? "Session suspended" :
