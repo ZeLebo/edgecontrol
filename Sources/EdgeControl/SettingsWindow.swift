@@ -14,6 +14,7 @@ final class SettingsWindow: NSObject {
     private let sensitivityValue = NSTextField(labelWithString: "1x")
     private let widthSlider = NSSlider(value: 5, minValue: 3, maxValue: 15, target: nil, action: nil)
     private let widthValue = NSTextField(labelWithString: "5%")
+    private let hapticsSwitch = NSButton(checkboxWithTitle: "Haptic Feedback", target: nil, action: nil)
     private let instruction = NSTextField(wrappingLabelWithString: "")
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
 
@@ -108,12 +109,16 @@ final class SettingsWindow: NSObject {
         widthValue.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         widthValue.alignment = .right
         content.addSubview(widthValue)
+        hapticsSwitch.frame = NSRect(x: 548, y: 76, width: 168, height: 26)
+        hapticsSwitch.target = self
+        hapticsSwitch.action = #selector(changeHaptics)
+        content.addSubview(hapticsSwitch)
         label("Changes are saved automatically.", at: NSRect(x: 24, y: 28, width: 400, height: 20), font: .systemFont(ofSize: 11), secondary: true, in: content)
         let reset = NSButton(title: "Restore Defaults", target: self, action: #selector(resetSettings))
         reset.bezelStyle = .rounded
         reset.frame = NSRect(x: 548, y: 20, width: 172, height: 32)
         content.addSubview(reset)
-        let controls: [NSView] = [edgeChooser, actionPicker, modePicker, sensitivitySlider, widthSlider, reset]
+        let controls: [NSView] = [edgeChooser, actionPicker, modePicker, sensitivitySlider, widthSlider, hapticsSwitch, reset]
         for (current, next) in zip(controls, controls.dropFirst() + [controls[0]]) { current.nextKeyView = next }
         window.initialFirstResponder = edgeChooser
     }
@@ -151,6 +156,7 @@ final class SettingsWindow: NSObject {
         sensitivityValue.textColor = sensitivitySlider.isEnabled ? .labelColor : .tertiaryLabelColor
         widthSlider.doubleValue = settings.stripWidth * 100
         widthValue.stringValue = String(format: "%.0f%%", settings.stripWidth * 100)
+        hapticsSwitch.state = settings.hapticsEnabled ? .on : .off
         diagram.settings = settings
         diagram.selectedEdge = selectedEdge
         instruction.stringValue = "Select a side on the diagram.\nRelative adjustment starts from the current system level."
@@ -186,6 +192,7 @@ final class SettingsWindow: NSObject {
     }
     @objc private func changeSensitivity() { updateEdge { $0.sensitivity = (sensitivitySlider.doubleValue * 4).rounded() / 4 } }
     @objc private func changeWidth() { var value = store.settings; value.stripWidth = widthSlider.doubleValue.rounded() / 100; save(value) }
+    @objc private func changeHaptics() { var value = store.settings; value.hapticsEnabled = hapticsSwitch.state == .on; save(value) }
     @objc private func resetSettings() {
         do { try store.reset(); refreshControls() }
         catch { errorLabel.stringValue = error.localizedDescription; errorLabel.isHidden = false }

@@ -22,6 +22,7 @@ struct SettingsStoreTests {
             settings.bottom = EdgeConfiguration(action: .volume, mode: .relative, sensitivity: 3)
             settings.left = EdgeConfiguration(action: .volume, mode: .relative, sensitivity: 1.5)
             settings.stripWidth = 0.15
+            settings.hapticsEnabled = false
             var notifications = 0
             store.onChange = { value in
                 notifications += 1
@@ -154,6 +155,39 @@ struct SettingsStoreTests {
             #expect(store.settings == .defaults)
             #expect(defaults.object(forKey: SettingsStore.storageKey) == nil)
             #expect(defaults.data(forKey: SettingsStore.previousStorageKey) == invalid)
+        }
+    }
+
+    @Test func earlierV3RecordsKeepRelativeSettingsAndEnableHaptics() throws {
+        try withDefaults { defaults in
+            var settings = EdgeSettings.defaults
+            settings.bottom.mode = .relative
+            settings.bottom.sensitivity = 2
+            settings.stripWidth = 0.09
+            var record = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(settings)) as? [String: Any])
+            record.removeValue(forKey: "hapticsEnabled")
+            let data = try JSONSerialization.data(withJSONObject: record)
+            defaults.set(data, forKey: SettingsStore.storageKey)
+            let store = SettingsStore(defaults: defaults, previousDefaults: nil)
+            #expect(store.loadError == nil)
+            #expect(store.settings == settings)
+            #expect(store.settings.hapticsEnabled)
+            #expect(defaults.data(forKey: SettingsStore.storageKey) == data)
+        }
+    }
+
+    @Test func invalidPresentHapticsPreferenceIsNotTreatedAsAnUpgradeDefault() throws {
+        try withDefaults { defaults in
+            let invalidValues: [Any] = [NSNull(), "true", 7]
+            for invalid in invalidValues {
+                var record = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(EdgeSettings.defaults)) as? [String: Any])
+                record["hapticsEnabled"] = invalid
+                let data = try JSONSerialization.data(withJSONObject: record)
+                defaults.set(data, forKey: SettingsStore.storageKey)
+                let store = SettingsStore(defaults: defaults, previousDefaults: nil)
+                #expect(store.loadError != nil)
+                #expect(defaults.data(forKey: SettingsStore.storageKey) == data)
+            }
         }
     }
 

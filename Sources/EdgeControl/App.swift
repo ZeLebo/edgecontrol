@@ -59,6 +59,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private let brightness = BrightnessOutput()
     private let settings = SettingsStore()
     private let hud = LevelHUD()
+    private let haptics = HapticFeedback()
     private var gesture = EdgeGesture()
     private var level = LevelAccumulator()
     private var settingsWindow: SettingsWindow?
@@ -131,6 +132,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         acceptedAfter = .infinity
         gesture.reset()
         level.reset()
+        haptics.reset()
         cursor.stop()
         input.stop()
         hud.hide()
@@ -157,6 +159,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
                     activeAction = nil
                     lastAppliedLevel = nil
                     level.reset()
+                    haptics.reset()
                 }
             case let .active(edge, action, change):
                 if activeAction == nil { try begin(action, configuration: settings.settings[edge]) }
@@ -174,6 +177,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
 
     private func begin(_ action: EdgeAction, configuration: EdgeConfiguration) throws {
         level.reset()
+        haptics.reset()
         lastAppliedLevel = nil
         if !diagnostic {
             switch action {
@@ -213,6 +217,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         controlErrors[action] = nil
         updateMenu()
         hud.show(action: action, percent: percent)
+        haptics.levelChanged(to: percent, enabled: settings.settings.hapticsEnabled)
     }
 
     @objc private func checkInput() {

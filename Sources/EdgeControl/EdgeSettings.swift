@@ -43,6 +43,7 @@ struct EdgeSettings: Codable, Equatable, Sendable {
     var bottom = EdgeConfiguration(action: .volume)
     var left = EdgeConfiguration()
     var stripWidth: Double = 0.05
+    var hapticsEnabled = true
     static let defaults = EdgeSettings()
     static let allowedStripWidths = 0.03...0.15
     var isValid: Bool {
@@ -66,5 +67,23 @@ struct EdgeSettings: Codable, Equatable, Sendable {
             case .left: left = newValue
             }
         }
+    }
+}
+
+// Existing v3 records predate the haptics preference. Other fields remain required.
+extension EdgeSettings {
+    private enum CodingKeys: String, CodingKey {
+        case top, right, bottom, left, stripWidth, hapticsEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        top = try values.decode(EdgeConfiguration.self, forKey: .top)
+        right = try values.decode(EdgeConfiguration.self, forKey: .right)
+        bottom = try values.decode(EdgeConfiguration.self, forKey: .bottom)
+        left = try values.decode(EdgeConfiguration.self, forKey: .left)
+        stripWidth = try values.decode(Double.self, forKey: .stripWidth)
+        hapticsEnabled = values.contains(.hapticsEnabled)
+            ? try values.decode(Bool.self, forKey: .hapticsEnabled) : true
     }
 }
