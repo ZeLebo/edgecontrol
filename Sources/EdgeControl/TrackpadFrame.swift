@@ -23,8 +23,7 @@ enum GestureUpdate: Sendable, Equatable {
 }
 
 struct TapCommand: Sendable, Equatable {
-    let edge: TrackpadEdge
-    let end: TapZoneEnd
+    let zone: TapZone
     let action: TapAction
 }
 

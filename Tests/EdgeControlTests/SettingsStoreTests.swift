@@ -4,23 +4,36 @@ import Testing
 
 @MainActor
 struct SettingsStoreTests {
-    @Test func firstLaunchUsesDefaultsWithoutWriting() throws {
+    @Test func firstLaunchUsesEightSharedZonesWithoutWriting() throws {
         try withDefaults { defaults in
             let store = SettingsStore(defaults: defaults, previousDefaults: nil)
             #expect(store.settings == .defaults)
             #expect(store.loadError == nil)
             #expect(defaults.object(forKey: SettingsStore.storageKey) == nil)
+            #expect(TapZone.allCases.map(\.rawValue) == ["topLeft", "topCenter", "topRight", "rightCenter", "bottomRight", "bottomCenter", "bottomLeft", "leftCenter"])
+            #expect(TrackpadEdge.top.tapZones == [.topLeft, .topCenter, .topRight])
+            #expect(TrackpadEdge.right.tapZones == [.bottomRight, .rightCenter, .topRight])
+            #expect(TrackpadEdge.bottom.tapZones == [.bottomLeft, .bottomCenter, .bottomRight])
+            #expect(TrackpadEdge.left.tapZones == [.bottomLeft, .leftCenter, .topLeft])
+            let positions: [TapZone: (Double, Double)] = [.topLeft: (0, 1), .topCenter: (0.5, 1), .topRight: (1, 1), .rightCenter: (1, 0.5), .bottomRight: (1, 0), .bottomCenter: (0.5, 0), .bottomLeft: (0, 0), .leftCenter: (0, 0.5)]
+            for zone in TapZone.allCases {
+                #expect(zone.position.x == positions[zone]?.0)
+                #expect(zone.position.y == positions[zone]?.1)
+                #expect(store.settings[zone] == ([TapZone.bottomLeft, .bottomRight].contains(zone) ? .mute : .none))
+            }
         }
     }
 
-    @Test func savesAllAssignmentsModesAndTapActionsBeforeNotifying() throws {
+    @Test func savesAllEdgeSettingsAndEightTapPointsBeforeNotifying() throws {
         try withDefaults { defaults in
             let store = SettingsStore(defaults: defaults, previousDefaults: nil)
             var settings = EdgeSettings.defaults
-            settings.top = EdgeConfiguration(action: .brightness, mode: .relative, sensitivity: 0.25, startTap: .seekBackward, endTap: .seekForward)
-            settings.right = EdgeConfiguration(action: .disabled, startTap: .playPause)
-            settings.bottom = EdgeConfiguration(action: .seek, sensitivity: 3, startTap: .previousTrack, endTap: .nextTrack)
-            settings.left = EdgeConfiguration(action: .volume, mode: .relative, sensitivity: 1.5, startTap: .mute, endTap: .none)
+            settings.top = EdgeConfiguration(action: .brightness, mode: .relative, sensitivity: 0.25)
+            settings.right = EdgeConfiguration(action: .disabled)
+            settings.bottom = EdgeConfiguration(action: .seek, sensitivity: 3)
+            settings.left = EdgeConfiguration(action: .volume, mode: .relative, sensitivity: 1.5)
+            let actions: [TapAction] = [.seekBackward, .playPause, .seekForward, .nextTrack, .previousTrack, .none, .mute, .playPause]
+            for (zone, action) in zip(TapZone.allCases, actions) { settings[zone] = action }
             settings.stripWidth = 0.15
             settings.hapticsEnabled = false
             var notifications = 0
@@ -33,7 +46,9 @@ struct SettingsStoreTests {
             }
             try store.update(settings)
             #expect(notifications == 1)
-            #expect(SettingsStore(defaults: defaults, previousDefaults: nil).settings == settings)
+            let reloaded = SettingsStore(defaults: defaults, previousDefaults: nil).settings
+            #expect(reloaded == settings)
+            for (zone, action) in zip(TapZone.allCases, actions) { #expect(reloaded.tapActions[zone] == action) }
         }
     }
 
@@ -66,10 +81,12 @@ struct SettingsStoreTests {
         }
     }
 
-    @Test func corruptCurrentRecordDoesNotFallBackToLegacyOrOverwriteIt() throws {
+    @Test func corruptCurrentRecordDoesNotFallBackOrOverwriteOlderRecords() throws {
         try withDefaults { defaults in
-            let legacy = try legacyRecord(bottom: "brightness")
-            defaults.set(legacy, forKey: SettingsStore.previousStorageKey)
+            let previous = try v3Record()
+            let flat = try flatRecord(bottom: "brightness")
+            defaults.set(previous, forKey: SettingsStore.previousStorageKey)
+            defaults.set(flat, forKey: SettingsStore.flatStorageKey)
             var invalid = EdgeSettings.defaults
             invalid.stripWidth = 0.01
             let records: [Any] = ["wrong-type", Data("{bad json".utf8), try JSONEncoder().encode(invalid)]
@@ -80,7 +97,8 @@ struct SettingsStoreTests {
                 #expect(store.loadError != nil)
                 if let data = record as? Data { #expect(defaults.data(forKey: SettingsStore.storageKey) == data) }
                 else { #expect(defaults.string(forKey: SettingsStore.storageKey) == record as? String) }
-                #expect(defaults.data(forKey: SettingsStore.previousStorageKey) == legacy)
+                #expect(defaults.data(forKey: SettingsStore.previousStorageKey) == previous)
+                #expect(defaults.data(forKey: SettingsStore.flatStorageKey) == flat)
                 try store.reset()
                 #expect(store.loadError == nil)
                 #expect(SettingsStore(defaults: defaults, previousDefaults: nil).settings == .defaults)
@@ -94,6 +112,8 @@ struct SettingsStoreTests {
             var settings = EdgeSettings.defaults
             settings.stripWidth = 0.03
             settings.bottom = EdgeConfiguration(action: .disabled)
+            settings[.bottomLeft] = .none
+            settings[.topCenter] = .playPause
             try store.update(settings)
             #expect(SettingsStore(defaults: defaults, previousDefaults: nil).settings == settings)
             try store.reset()
@@ -102,10 +122,10 @@ struct SettingsStoreTests {
         }
     }
 
-    @Test func importsPreviousDomainOnceAndPreservesOriginalRecord() throws {
+    @Test func importsOldDomainV2OnceAndPreservesOriginalRecord() throws {
         try withDefaults { defaults in
             try withDefaults { previous in
-                let record = try legacyRecord(bottom: "brightness", left: "volume", width: 0.09)
+                let record = try flatRecord(bottom: "brightness", left: "volume", width: 0.09)
                 previous.set(record, forKey: SettingsStore.legacyStorageKey)
                 let store = SettingsStore(defaults: defaults, previousDefaults: previous)
                 #expect(store.loadError == nil)
@@ -114,14 +134,16 @@ struct SettingsStoreTests {
                 #expect(store.settings.stripWidth == 0.09)
                 #expect(store.settings.left.mode == .absolute)
                 #expect(store.settings.left.sensitivity == 1)
-                #expect(store.settings.left.startTap == .mute)
-                #expect(store.settings.left.endTap == .mute)
+                #expect(store.settings[.topLeft] == .mute)
+                #expect(store.settings[.bottomLeft] == .mute)
+                #expect(store.settings[.bottomRight] == .none)
                 #expect(store.settings.hapticsEnabled)
                 #expect(defaults.data(forKey: SettingsStore.storageKey) != nil)
                 #expect(previous.data(forKey: SettingsStore.legacyStorageKey) == record)
                 var edited = store.settings
                 edited.left.mode = .relative
                 edited.left.sensitivity = 2
+                edited[.leftCenter] = .seekForward
                 try store.update(edited)
                 #expect(SettingsStore(defaults: defaults, previousDefaults: previous).settings == edited)
                 #expect(previous.data(forKey: SettingsStore.legacyStorageKey) == record)
@@ -129,74 +151,123 @@ struct SettingsStoreTests {
         }
     }
 
-    @Test func currentDomainLegacyRecordTakesPrecedenceAndValidCurrentRecordWins() throws {
+    @Test func currentDomainV2TakesPrecedenceOverOldDomainV2() throws {
         try withDefaults { defaults in
             try withDefaults { previous in
-                let localRecord = try legacyRecord(bottom: "volume", width: 0.08)
-                defaults.set(localRecord, forKey: SettingsStore.previousStorageKey)
-                previous.set(try legacyRecord(bottom: "brightness"), forKey: SettingsStore.legacyStorageKey)
+                let localRecord = try flatRecord(bottom: "volume", width: 0.08)
+                defaults.set(localRecord, forKey: SettingsStore.flatStorageKey)
+                previous.set(try flatRecord(bottom: "brightness"), forKey: SettingsStore.legacyStorageKey)
                 let store = SettingsStore(defaults: defaults, previousDefaults: previous)
                 #expect(store.settings.bottom.action == .volume)
                 #expect(store.settings.stripWidth == 0.08)
-                #expect(defaults.data(forKey: SettingsStore.previousStorageKey) == localRecord)
-                var current = store.settings
-                current.bottom.mode = .relative
-                current.top.action = .tracks
-                try store.update(current)
-                defaults.set("invalid old data", forKey: SettingsStore.previousStorageKey)
-                #expect(SettingsStore(defaults: defaults, previousDefaults: previous).settings == current)
+                #expect(store.settings[.bottomLeft] == .mute)
+                #expect(store.settings[.bottomRight] == .mute)
+                #expect(defaults.data(forKey: SettingsStore.flatStorageKey) == localRecord)
             }
         }
     }
 
-    @Test func invalidLegacyRecordIsVisibleAndNotReplaced() throws {
+    @Test func invalidV2RecordIsVisibleAndNotReplaced() throws {
         try withDefaults { defaults in
-            let invalid = try legacyRecord(bottom: "unsupported", width: 0.05)
-            defaults.set(invalid, forKey: SettingsStore.previousStorageKey)
-            let store = SettingsStore(defaults: defaults, previousDefaults: nil)
-            #expect(store.loadError != nil)
-            #expect(store.settings == .defaults)
-            #expect(defaults.object(forKey: SettingsStore.storageKey) == nil)
-            #expect(defaults.data(forKey: SettingsStore.previousStorageKey) == invalid)
+            try withDefaults { previous in
+                let oldValid = try flatRecord(bottom: "volume")
+                previous.set(oldValid, forKey: SettingsStore.legacyStorageKey)
+                for record in [try flatRecord(bottom: "unsupported"), try flatRecord(bottom: "volume", width: 0.01)] {
+                    defaults.set(record, forKey: SettingsStore.flatStorageKey)
+                    let store = SettingsStore(defaults: defaults, previousDefaults: previous)
+                    #expect(store.loadError != nil)
+                    #expect(store.settings == .defaults)
+                    #expect(defaults.object(forKey: SettingsStore.storageKey) == nil)
+                    #expect(defaults.data(forKey: SettingsStore.flatStorageKey) == record)
+                    #expect(previous.data(forKey: SettingsStore.legacyStorageKey) == oldValid)
+                }
+            }
         }
     }
 
-    @Test func earlierV3RecordsKeepRelativeSettingsWhenNewControlsAreAdded() throws {
+    @Test func earlierV3RecordsKeepRelativeSettingsAndMissingFieldDefaults() throws {
         try withDefaults { defaults in
             for savedHaptics in [nil, false, true] as [Bool?] {
-                var original = EdgeSettings.defaults
-                original.bottom.mode = .relative
-                original.bottom.sensitivity = 1.75
-                original.stripWidth = 0.09
-                var record = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(original)) as? [String: Any])
-                for edge in TrackpadEdge.allCases {
-                    var configuration = try #require(record[edge.rawValue] as? [String: Any])
-                    configuration.removeValue(forKey: "startTap")
-                    configuration.removeValue(forKey: "endTap")
-                    record[edge.rawValue] = configuration
-                }
-                record["hapticsEnabled"] = savedHaptics
-                let data = try JSONSerialization.data(withJSONObject: record)
-                defaults.set(data, forKey: SettingsStore.storageKey)
+                defaults.removeObject(forKey: SettingsStore.storageKey)
+                let data = try v3Record(overrides: [.bottom: ["mode": "relative", "sensitivity": 1.75]], includesTaps: false, haptics: savedHaptics, width: 0.09)
+                defaults.set(data, forKey: SettingsStore.previousStorageKey)
                 let store = SettingsStore(defaults: defaults, previousDefaults: nil)
                 #expect(store.loadError == nil)
                 #expect(store.settings.bottom.mode == .relative)
                 #expect(store.settings.bottom.sensitivity == 1.75)
                 #expect(store.settings.stripWidth == 0.09)
-                #expect(store.settings.bottom.startTap == .mute)
-                #expect(store.settings.bottom.endTap == .mute)
-                #expect(store.settings.right.startTap == .none)
+                #expect(store.settings[.bottomLeft] == .mute)
+                #expect(store.settings[.bottomRight] == .mute)
+                #expect(store.settings[.topRight] == .none)
                 #expect(store.settings.hapticsEnabled == (savedHaptics ?? true))
-                #expect(defaults.data(forKey: SettingsStore.storageKey) == data)
+                #expect(defaults.data(forKey: SettingsStore.previousStorageKey) == data)
+                #expect(defaults.data(forKey: SettingsStore.storageKey) != nil)
             }
         }
     }
 
-    @Test func corruptNewFieldsAreNotTreatedAsMissingUpgradeFields() throws {
+    @Test func v3SharedCornersPreferEnabledHorizontalActionsOtherwiseVertical() throws {
         try withDefaults { defaults in
-            let encoded = try JSONEncoder().encode(EdgeSettings.defaults)
-            for field in ["hapticsEnabled", "startTap", "endTap"] {
-                var record = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+            let data = try v3Record(overrides: [
+                .top: ["action": "seek", "mode": "relative", "sensitivity": 0.5, "startTap": "previousTrack", "endTap": "none"],
+                .right: ["mode": "relative", "sensitivity": 2, "startTap": "seekForward", "endTap": "playPause"],
+                .bottom: ["startTap": "none", "endTap": "mute"],
+                .left: ["startTap": "seekBackward", "endTap": "nextTrack"]
+            ], haptics: false, width: 0.12)
+            defaults.set(data, forKey: SettingsStore.previousStorageKey)
+            let store = SettingsStore(defaults: defaults, previousDefaults: nil)
+            #expect(store.loadError == nil)
+            #expect(store.settings.top == EdgeConfiguration(action: .seek, mode: .relative, sensitivity: 0.5))
+            #expect(store.settings.right == EdgeConfiguration(action: .brightness, mode: .relative, sensitivity: 2))
+            #expect(store.settings.stripWidth == 0.12)
+            #expect(!store.settings.hapticsEnabled)
+            #expect(store.settings[.topLeft] == .previousTrack)
+            #expect(store.settings[.topRight] == .playPause)
+            #expect(store.settings[.bottomRight] == .mute)
+            #expect(store.settings[.bottomLeft] == .seekBackward)
+            for zone in [TapZone.topCenter, .rightCenter, .bottomCenter, .leftCenter] { #expect(store.settings[zone] == .none) }
+            #expect(defaults.data(forKey: SettingsStore.previousStorageKey) == data)
+        }
+    }
+
+    @Test func v3ImportRunsOnceAndPreservesOriginalAfterNewSave() throws {
+        try withDefaults { defaults in
+            let data = try v3Record(overrides: [.top: ["startTap": "playPause"]])
+            defaults.set(data, forKey: SettingsStore.previousStorageKey)
+            let store = SettingsStore(defaults: defaults, previousDefaults: nil)
+            var current = store.settings
+            current[.topLeft] = .none
+            current[.topCenter] = .nextTrack
+            try store.update(current)
+            #expect(SettingsStore(defaults: defaults, previousDefaults: nil).settings == current)
+            #expect(defaults.data(forKey: SettingsStore.previousStorageKey) == data)
+        }
+    }
+
+    @Test func v3TakesPrecedenceOverV2AndCurrentV4WinsOverBoth() throws {
+        try withDefaults { defaults in
+            let v3 = try v3Record(overrides: [.bottom: ["action": "seek"]])
+            let v2 = try flatRecord(bottom: "brightness")
+            defaults.set(v3, forKey: SettingsStore.previousStorageKey)
+            defaults.set(v2, forKey: SettingsStore.flatStorageKey)
+            let store = SettingsStore(defaults: defaults, previousDefaults: nil)
+            #expect(store.settings.bottom.action == .seek)
+            var current = store.settings
+            current.bottom.action = .tracks
+            current[.bottomCenter] = .playPause
+            try store.update(current)
+            defaults.set("invalid v3", forKey: SettingsStore.previousStorageKey)
+            defaults.set("invalid v2", forKey: SettingsStore.flatStorageKey)
+            #expect(SettingsStore(defaults: defaults, previousDefaults: nil).settings == current)
+        }
+    }
+
+    @Test func corruptV3FieldsDoNotFallBackToV2OrTreatNullAsMissing() throws {
+        try withDefaults { defaults in
+            let flat = try flatRecord(bottom: "brightness")
+            defaults.set(flat, forKey: SettingsStore.flatStorageKey)
+            for field in ["hapticsEnabled", "startTap", "endTap", "sensitivity"] {
+                var record = try #require(JSONSerialization.jsonObject(with: v3Record()) as? [String: Any])
                 if field == "hapticsEnabled" { record[field] = NSNull() }
                 else {
                     var bottom = try #require(record["bottom"] as? [String: Any])
@@ -204,16 +275,84 @@ struct SettingsStoreTests {
                     record["bottom"] = bottom
                 }
                 let data = try JSONSerialization.data(withJSONObject: record)
-                defaults.set(data, forKey: SettingsStore.storageKey)
+                defaults.set(data, forKey: SettingsStore.previousStorageKey)
                 let store = SettingsStore(defaults: defaults, previousDefaults: nil)
                 #expect(store.loadError != nil)
-                #expect(defaults.data(forKey: SettingsStore.storageKey) == data)
+                #expect(defaults.object(forKey: SettingsStore.storageKey) == nil)
+                #expect(defaults.data(forKey: SettingsStore.previousStorageKey) == data)
+                #expect(defaults.data(forKey: SettingsStore.flatStorageKey) == flat)
+            }
+            let invalid = try v3Record(overrides: [.left: ["sensitivity": 9]])
+            defaults.set(invalid, forKey: SettingsStore.previousStorageKey)
+            #expect(SettingsStore(defaults: defaults, previousDefaults: nil).loadError != nil)
+            #expect(defaults.object(forKey: SettingsStore.storageKey) == nil)
+        }
+    }
+
+    @Test func currentV4RequiresValidCompleteTapAssignments() throws {
+        try withDefaults { defaults in
+            let encoded = try JSONEncoder().encode(EdgeSettings.defaults)
+            for field in ["tapActions", "hapticsEnabled"] {
+                for null in [false, true] {
+                    var record = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+                    if null { record[field] = NSNull() } else { record.removeValue(forKey: field) }
+                    let data = try JSONSerialization.data(withJSONObject: record)
+                    defaults.set(data, forKey: SettingsStore.storageKey)
+                    let store = SettingsStore(defaults: defaults, previousDefaults: nil)
+                    #expect(store.loadError != nil)
+                    #expect(defaults.data(forKey: SettingsStore.storageKey) == data)
+                }
+            }
+            for zone in TapZone.allCases {
+                for invalid in [nil, NSNull(), "unsupported"] as [Any?] {
+                    var record = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+                    var actions = try #require(record["tapActions"] as? [String: Any])
+                    actions[zone.rawValue] = invalid
+                    record["tapActions"] = actions
+                    let data = try JSONSerialization.data(withJSONObject: record)
+                    defaults.set(data, forKey: SettingsStore.storageKey)
+                    let store = SettingsStore(defaults: defaults, previousDefaults: nil)
+                    #expect(store.loadError != nil)
+                    #expect(defaults.data(forKey: SettingsStore.storageKey) == data)
+                }
             }
         }
     }
 
-    private func legacyRecord(bottom: String, left: String = "disabled", width: Double = 0.05) throws -> Data {
-        try JSONSerialization.data(withJSONObject: ["top": "disabled", "right": "brightness", "bottom": bottom, "left": left, "stripWidth": width])
+    @Test func v2VolumeAssignmentsPopulateAllRelevantCornersAndNoCenters() throws {
+        try withDefaults { defaults in
+            let data = try flatRecord(top: "volume", right: "volume", bottom: "volume", left: "volume")
+            defaults.set(data, forKey: SettingsStore.flatStorageKey)
+            let store = SettingsStore(defaults: defaults, previousDefaults: nil)
+            for zone in TapZone.allCases {
+                let corner = zone.position.x != 0.5 && zone.position.y != 0.5
+                #expect(store.settings[zone] == (corner ? .mute : .none))
+            }
+            #expect(defaults.data(forKey: SettingsStore.flatStorageKey) == data)
+        }
+    }
+
+    private func v3Record(overrides: [TrackpadEdge: [String: Any]] = [:], includesTaps: Bool = true,
+                          haptics: Bool? = true, width: Double = 0.05) throws -> Data {
+        var record: [String: Any] = ["stripWidth": width]
+        if let haptics { record["hapticsEnabled"] = haptics }
+        for edge in TrackpadEdge.allCases {
+            let initial = EdgeSettings.defaults[edge]
+            var configuration: [String: Any] = ["action": initial.action.rawValue, "mode": initial.mode.rawValue, "sensitivity": initial.sensitivity]
+            if includesTaps {
+                let tap = initial.action == .volume ? "mute" : "none"
+                configuration["startTap"] = tap
+                configuration["endTap"] = tap
+            }
+            configuration.merge(overrides[edge] ?? [:]) { _, new in new }
+            record[edge.rawValue] = configuration
+        }
+        return try JSONSerialization.data(withJSONObject: record)
+    }
+
+    private func flatRecord(top: String = "disabled", right: String = "brightness", bottom: String,
+                            left: String = "disabled", width: Double = 0.05) throws -> Data {
+        try JSONSerialization.data(withJSONObject: ["top": top, "right": right, "bottom": bottom, "left": left, "stripWidth": width])
     }
 
     private func withDefaults(_ body: (UserDefaults) throws -> Void) throws {

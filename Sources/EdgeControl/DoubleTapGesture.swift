@@ -1,7 +1,6 @@
 struct DoubleTapGesture {
     private struct Zone: Equatable {
-        let edge: TrackpadEdge
-        let end: TapZoneEnd
+        let position: TapZone
         let action: TapAction
     }
     private struct FirstTap {
@@ -68,8 +67,7 @@ struct DoubleTapGesture {
                 if touch.isSecond {
                     firstTap = nil
                     suppressionUntil = frame.timestamp + 0.08
-                    return TapUpdate(command: TapCommand(edge: touch.zone.edge, end: touch.zone.end,
-                                                         action: touch.zone.action), suppressClicks: true,
+                    return TapUpdate(command: TapCommand(zone: touch.zone.position, action: touch.zone.action), suppressClicks: true,
                                      suppressionUntil: suppressionUntil)
                 }
                 firstTap = FirstTap(zone: touch.zone, releasedAt: frame.timestamp)
@@ -103,37 +101,30 @@ struct DoubleTapGesture {
     }
 
     private func zone(at contact: TrackpadContact, settings: EdgeSettings) -> Zone? {
-        var closest: (zone: Zone, distance: Double)?
-        for edge in TrackpadEdge.allCases {
-            for end in TapZoneEnd.allCases {
-                let action = settings[edge][end]
-                let zone = Zone(edge: edge, end: end, action: action)
-                guard action != .none, contains(contact, in: zone, width: settings.stripWidth) else { continue }
-                let distance: Double
-                switch edge {
-                case .top: distance = 1 - contact.y
-                case .right: distance = 1 - contact.x
-                case .bottom: distance = contact.y
-                case .left: distance = contact.x
-                }
-                // Ties keep the documented clockwise edge order, including opposite-corner rounding.
-                if closest == nil || distance < closest!.distance - 1e-12 {
-                    closest = (zone, distance)
-                }
-            }
+        for position in TapZone.allCases {
+            let zone = Zone(position: position, action: settings[position])
+            if zone.action != .none, contains(contact, in: zone, width: settings.stripWidth) { return zone }
         }
-        return closest?.zone
+        return nil
     }
 
     private func contains(_ contact: TrackpadContact, in zone: Zone, width: Double) -> Bool {
-        let inBand: Bool
-        switch zone.edge {
-        case .top: inBand = contact.y >= 1 - width
-        case .right: inBand = contact.x >= 1 - width
-        case .bottom: inBand = contact.y <= width
-        case .left: inBand = contact.x <= width
+        let x = contact.x
+        let y = contact.y
+        let left = x <= width
+        let right = x >= 1 - width
+        let bottom = y <= width
+        let top = y >= 1 - width
+        // Each corner is one L-shaped region shared by both adjacent edge strips.
+        switch zone.position {
+        case .topLeft: return (top && x <= 0.12) || (left && y >= 0.88)
+        case .topRight: return (top && x >= 0.88) || (right && y >= 0.88)
+        case .bottomLeft: return (bottom && x <= 0.12) || (left && y <= 0.12)
+        case .bottomRight: return (bottom && x >= 0.88) || (right && y <= 0.12)
+        case .topCenter: return top && abs(x - 0.5) <= 0.06 + 1e-12
+        case .rightCenter: return right && abs(y - 0.5) <= 0.06 + 1e-12
+        case .bottomCenter: return bottom && abs(x - 0.5) <= 0.06 + 1e-12
+        case .leftCenter: return left && abs(y - 0.5) <= 0.06 + 1e-12
         }
-        let coordinate = zone.edge.isHorizontal ? contact.x : contact.y
-        return inBand && (zone.end == .start ? coordinate <= 0.12 : coordinate >= 0.88)
     }
 }

@@ -13,10 +13,10 @@ In Settings, select any of the four edges and choose its controls:
 - **Absolute:** position selects the level, with reachable 0% and 100% endpoints.
 - **Relative:** movement adds to or subtracts from the current system level. Touching at a different position does not cause a jump. Sensitivity is separate for each edge, from 0.25x to 3x.
 - **Track Navigation / Seek:** a slide sends Previous or Next Track, or skips backward or forward by 10 seconds. Each slide sends one command; lift and slide again to repeat. Right or up moves forward.
-- **Double tap:** the first and last 12% of each edge are separate zones. Choose None, Mute / Unmute, Play / Pause, Previous Track, Next Track, or a 10-second skip. Purple endpoints on the diagram mark configured zones. Both ends of the default volume edge toggle mute.
+- **Double tap:** eight points cover the four corners and the middle of each edge. A corner has one action shared by its two edges. Select a point on the diagram or in the point picker, then choose None, Mute / Unmute, Play / Pause, Previous Track, Next Track, or a 10-second skip. Purple points mark configured actions. The two bottom corners toggle mute by default.
 - **Feedback:** a compact icon and bar show level changes. Haptic feedback can be turned off. Edge width is adjustable from 3% to 15%.
 
-Settings are saved automatically. Existing assignments are imported once from the earlier app name.
+Settings are saved automatically. Existing assignments are imported once from earlier formats. If two old actions share a corner, a configured horizontal-edge action takes priority; otherwise the vertical-edge action is kept. Center points start unassigned.
 
 ## Build
 

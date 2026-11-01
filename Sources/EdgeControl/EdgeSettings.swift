@@ -4,6 +4,14 @@ enum TrackpadEdge: String, Codable, CaseIterable, Sendable {
     case top, right, bottom, left
     var title: String { rawValue.capitalized }
     var isHorizontal: Bool { self == .top || self == .bottom }
+    var tapZones: [TapZone] {
+        switch self {
+        case .top: [.topLeft, .topCenter, .topRight]
+        case .right: [.bottomRight, .rightCenter, .topRight]
+        case .bottom: [.bottomLeft, .bottomCenter, .bottomRight]
+        case .left: [.bottomLeft, .leftCenter, .topLeft]
+        }
+    }
 }
 
 enum EdgeAction: String, Codable, CaseIterable, Sendable {
@@ -34,10 +42,31 @@ enum AdjustmentMode: String, Codable, CaseIterable, Sendable {
     var title: String { rawValue.capitalized }
 }
 
-enum TapZoneEnd: String, Codable, CaseIterable, Sendable {
-    case start, end
-    func title(on edge: TrackpadEdge) -> String {
-        edge.isHorizontal ? (self == .start ? "Left" : "Right") : (self == .start ? "Bottom" : "Top")
+enum TapZone: String, Codable, CaseIterable, Sendable {
+    case topLeft, topCenter, topRight, rightCenter, bottomRight, bottomCenter, bottomLeft, leftCenter
+    var title: String {
+        switch self {
+        case .topLeft: "Top Left"
+        case .topCenter: "Top Center"
+        case .topRight: "Top Right"
+        case .rightCenter: "Right Center"
+        case .bottomRight: "Bottom Right"
+        case .bottomCenter: "Bottom Center"
+        case .bottomLeft: "Bottom Left"
+        case .leftCenter: "Left Center"
+        }
+    }
+    var position: (x: Double, y: Double) {
+        switch self {
+        case .topLeft: (0, 1)
+        case .topCenter: (0.5, 1)
+        case .topRight: (1, 1)
+        case .rightCenter: (1, 0.5)
+        case .bottomRight: (1, 0)
+        case .bottomCenter: (0.5, 0)
+        case .bottomLeft: (0, 0)
+        case .leftCenter: (0, 0.5)
+        }
     }
 }
 
@@ -71,23 +100,56 @@ struct EdgeConfiguration: Codable, Equatable, Sendable {
     var action: EdgeAction = .disabled
     var mode: AdjustmentMode = .absolute
     var sensitivity: Double = 1
-    var startTap: TapAction = .none
-    var endTap: TapAction = .none
     var effectiveMode: AdjustmentMode { action.isLevel ? mode : .relative }
     var isValid: Bool { sensitivity.isFinite && (0.25...3).contains(sensitivity) }
-    subscript(end: TapZoneEnd) -> TapAction {
-        get { end == .start ? startTap : endTap }
-        set { if end == .start { startTap = newValue } else { endTap = newValue } }
+}
+
+struct TapAssignments: Codable, Equatable, Sendable {
+    var topLeft: TapAction = .none
+    var topCenter: TapAction = .none
+    var topRight: TapAction = .none
+    var rightCenter: TapAction = .none
+    var bottomRight: TapAction = .mute
+    var bottomCenter: TapAction = .none
+    var bottomLeft: TapAction = .mute
+    var leftCenter: TapAction = .none
+
+    subscript(zone: TapZone) -> TapAction {
+        get {
+            switch zone {
+            case .topLeft: topLeft
+            case .topCenter: topCenter
+            case .topRight: topRight
+            case .rightCenter: rightCenter
+            case .bottomRight: bottomRight
+            case .bottomCenter: bottomCenter
+            case .bottomLeft: bottomLeft
+            case .leftCenter: leftCenter
+            }
+        }
+        set {
+            switch zone {
+            case .topLeft: topLeft = newValue
+            case .topCenter: topCenter = newValue
+            case .topRight: topRight = newValue
+            case .rightCenter: rightCenter = newValue
+            case .bottomRight: bottomRight = newValue
+            case .bottomCenter: bottomCenter = newValue
+            case .bottomLeft: bottomLeft = newValue
+            case .leftCenter: leftCenter = newValue
+            }
+        }
     }
 }
 
 struct EdgeSettings: Codable, Equatable, Sendable {
     var top = EdgeConfiguration()
     var right = EdgeConfiguration(action: .brightness)
-    var bottom = EdgeConfiguration(action: .volume, startTap: .mute, endTap: .mute)
+    var bottom = EdgeConfiguration(action: .volume)
     var left = EdgeConfiguration()
     var stripWidth: Double = 0.05
     var hapticsEnabled = true
+    var tapActions = TapAssignments()
     static let defaults = EdgeSettings()
     static let allowedStripWidths = 0.03...0.15
     var isValid: Bool {
@@ -112,33 +174,9 @@ struct EdgeSettings: Codable, Equatable, Sendable {
             }
         }
     }
-}
-
-extension EdgeConfiguration {
-    private enum CodingKeys: String, CodingKey { case action, mode, sensitivity, startTap, endTap }
-
-    init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        action = try values.decode(EdgeAction.self, forKey: .action)
-        mode = try values.decode(AdjustmentMode.self, forKey: .mode)
-        sensitivity = try values.decode(Double.self, forKey: .sensitivity)
-        // Earlier v3 releases stored slide settings before double taps were added.
-        let initialTap: TapAction = action == .volume ? .mute : .none
-        startTap = try values.contains(.startTap) ? values.decode(TapAction.self, forKey: .startTap) : initialTap
-        endTap = try values.contains(.endTap) ? values.decode(TapAction.self, forKey: .endTap) : initialTap
+    subscript(zone: TapZone) -> TapAction {
+        get { tapActions[zone] }
+        set { tapActions[zone] = newValue }
     }
-}
 
-extension EdgeSettings {
-    private enum CodingKeys: String, CodingKey { case top, right, bottom, left, stripWidth, hapticsEnabled }
-
-    init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        top = try values.decode(EdgeConfiguration.self, forKey: .top)
-        right = try values.decode(EdgeConfiguration.self, forKey: .right)
-        bottom = try values.decode(EdgeConfiguration.self, forKey: .bottom)
-        left = try values.decode(EdgeConfiguration.self, forKey: .left)
-        stripWidth = try values.decode(Double.self, forKey: .stripWidth)
-        hapticsEnabled = try values.contains(.hapticsEnabled) ? values.decode(Bool.self, forKey: .hapticsEnabled) : true
-    }
 }

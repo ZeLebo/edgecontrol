@@ -37,7 +37,7 @@ struct DoubleTapGestureTests {
         #expect(input.send([], after: 0.03).suppressClicks)
         #expect(input.finger(id: 2, after: 0.05).suppressClicks)
         let completed = input.send([], after: 0.04)
-        #expect(completed.command == TapCommand(edge: .bottom, end: .start, action: .mute))
+        #expect(completed.command == TapCommand(zone: .bottomLeft, action: .mute))
         #expect(completed.suppressClicks)
         #expect(completed.suppressionUntil == input.time + 0.08)
         #expect(input.send([]).suppressClicks)
@@ -45,23 +45,23 @@ struct DoubleTapGestureTests {
         #expect(input.tap(id: 4).command?.action == .mute)
     }
 
-    @Test func bothEndsWorkOnAllFourEdgesEvenWithSlidingDisabled() {
-        for edge in TrackpadEdge.allCases {
-            for end in TapZoneEnd.allCases {
-                var input = TapInput()
-                input.settings = emptySettings()
-                input.settings[edge][end] = .playPause
-                input.ready()
-                let coordinate = end == .start ? 0.06 : 0.94
-                let (x, y) = position(edge, coordinate)
-                #expect(input.tap(x, y: y).command == nil)
-                #expect(input.tap(x, y: y, id: 2).command == TapCommand(edge: edge, end: end, action: .playPause))
-            }
+    @Test func allEightZonesWorkWithSlidingDisabled() {
+        #expect(TapZone.allCases.count == 8)
+        for zone in TapZone.allCases {
+            var input = TapInput()
+            input.settings = emptySettings()
+            input.settings[zone] = .playPause
+            input.ready()
+            let point = zone.position
+            let x = max(0.02, min(0.98, point.x))
+            let y = max(0.02, min(0.98, point.y))
+            #expect(input.tap(x, y: y).command == nil)
+            #expect(input.tap(x, y: y, id: 2).command == TapCommand(zone: zone, action: .playPause))
         }
     }
 
     @Test func onlyConfiguredZonesSuppressClicks() {
-        for (x, y) in [(0.5, 0.02), (0.06, 0.5), (0.5, 0.5), (0.98, 0.06)] {
+        for (x, y) in [(0.5, 0.02), (0.06, 0.5), (0.5, 0.5), (0.98, 0.5)] {
             var input = TapInput()
             input.ready()
             #expect(input.finger(x, y: y) == .inactive)
@@ -115,11 +115,11 @@ struct DoubleTapGestureTests {
 
     @Test func differentZonesDoNotCompleteTheSameDoubleTap() {
         var input = TapInput()
-        input.settings.bottom.endTap = .nextTrack
+        input.settings[TapZone.bottomRight] = .nextTrack
         input.ready()
         #expect(input.tap().command == nil)
         #expect(input.tap(0.94, id: 2).command == nil)
-        #expect(input.tap(0.94, id: 3).command == TapCommand(edge: .bottom, end: .end, action: .nextTrack))
+        #expect(input.tap(0.94, id: 3).command == TapCommand(zone: .bottomRight, action: .nextTrack))
     }
 
     @Test func slidingAndMultipleFingersClearThePendingTap() {
@@ -144,7 +144,7 @@ struct DoubleTapGestureTests {
             input.ready()
             #expect(input.tap().command == nil)
             if reset { input.gesture.reset() }
-            else { input.settings.bottom.startTap = .playPause }
+            else { input.settings[TapZone.bottomLeft] = .playPause }
             #expect(input.finger(id: 2) == .inactive)
             #expect(input.send([]) == .inactive)
             #expect(input.tap().command == nil)
@@ -210,24 +210,50 @@ struct DoubleTapGestureTests {
         #expect(stale.tap().command?.action == .mute)
     }
 
-    @Test func cornersChooseClosestEdgeWithClockwiseOrderForTies() {
-        for (x, y, edge, action) in [
-            (0.98, 0.02, TrackpadEdge.right, TapAction.playPause),
-            (0.97, 0.01, .bottom, .mute),
-            (0.99, 0.03, .right, .playPause),
+    @Test func adjacentEdgesShareOneCornerActionAndOneTapPair() {
+        for (zone, firstX, firstY, secondX, secondY) in [
+            (TapZone.bottomLeft, 0.06, 0.02, 0.02, 0.06),
+            (.bottomRight, 0.94, 0.02, 0.98, 0.06),
+            (.topLeft, 0.06, 0.98, 0.02, 0.94),
+            (.topRight, 0.94, 0.98, 0.98, 0.94),
         ] {
             var input = TapInput()
-            input.settings.right.startTap = .playPause
+            input.settings = emptySettings()
+            input.settings[zone] = .playPause
             input.ready()
-            #expect(input.tap(x, y: y).command == nil)
-            #expect(input.tap(x, y: y, id: 2).command == TapCommand(
-                edge: edge, end: edge == .right ? .start : .end, action: action))
+            #expect(input.tap(firstX, y: firstY).command == nil)
+            #expect(input.tap(secondX, y: secondY, id: 2).command == TapCommand(zone: zone, action: .playPause))
+            #expect(input.send([]).command == nil)
         }
+    }
+
+    @Test func centersUseTheirOwnTwelvePercentRegion() {
+        for edge in TrackpadEdge.allCases {
+            let zone = edge.tapZones[1]
+            for (coordinate, inside) in [(0.4399, false), (0.44, true), (0.5, true), (0.56, true), (0.5601, false)] {
+                var input = TapInput()
+                input.settings = emptySettings()
+                input.settings[zone] = .nextTrack
+                input.ready()
+                let (x, y) = position(edge, coordinate)
+                #expect(input.finger(x, y: y).suppressClicks == inside)
+            }
+        }
+    }
+
+    @Test func aCenterAndACornerCannotCompleteOnePair() {
+        var input = TapInput()
+        input.settings[TapZone.bottomCenter] = .playPause
+        input.ready()
+        #expect(input.tap().command == nil)
+        #expect(input.tap(0.5, id: 2).command == nil)
+        #expect(input.tap(0.5, id: 3).command == TapCommand(zone: .bottomCenter, action: .playPause))
     }
 
     private func emptySettings() -> EdgeSettings {
         var settings = EdgeSettings.defaults
         for edge in TrackpadEdge.allCases { settings[edge] = EdgeConfiguration() }
+        for zone in TapZone.allCases { settings[zone] = .none }
         return settings
     }
 

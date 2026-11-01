@@ -5,6 +5,7 @@ final class SettingsWindow: NSObject {
     private let store: SettingsStore
     private let window: NSWindow
     private var selectedEdge: TrackpadEdge = .bottom
+    private var selectedTapZone: TapZone = .bottomLeft
     private let edgeChooser = NSSegmentedControl(labels: TrackpadEdge.allCases.map(\.title), trackingMode: .selectOne, target: nil, action: nil)
     private let diagram = TrackpadDiagramView(frame: NSRect(x: 30, y: 278, width: 300, height: 196))
     private let edgeTitle = NSTextField(labelWithString: "Bottom Edge")
@@ -12,10 +13,9 @@ final class SettingsWindow: NSObject {
     private let modePicker = NSPopUpButton()
     private let sensitivitySlider = NSSlider(value: 1, minValue: 0.25, maxValue: 3, target: nil, action: nil)
     private let sensitivityValue = NSTextField(labelWithString: "1x")
-    private let startTapTitle = NSTextField(labelWithString: "Left End Double Tap")
-    private let endTapTitle = NSTextField(labelWithString: "Right End Double Tap")
-    private let startTapPicker = NSPopUpButton()
-    private let endTapPicker = NSPopUpButton()
+    private let tapTitle = NSTextField(labelWithString: "Bottom Left Double Tap")
+    private let tapZonePicker = NSPopUpButton()
+    private let tapPicker = NSPopUpButton()
     private let widthSlider = NSSlider(value: 5, minValue: 3, maxValue: 15, target: nil, action: nil)
     private let widthValue = NSTextField(labelWithString: "5%")
     private let hapticsSwitch = NSButton(checkboxWithTitle: "Haptic Feedback", target: nil, action: nil)
@@ -57,13 +57,18 @@ final class SettingsWindow: NSObject {
         let content = SettingsBackgroundView(frame: NSRect(x: 0, y: 0, width: 740, height: 610))
         window.contentView = content
         label("Trackpad Controls", at: NSRect(x: 24, y: 557, width: 692, height: 32), font: .systemFont(ofSize: 24, weight: .semibold), in: content)
-        label("Choose an edge, then set its slide and double-tap actions.", at: NSRect(x: 24, y: 528, width: 692, height: 20), secondary: true, in: content)
+        label("Choose an edge to slide, or a point to double tap.", at: NSRect(x: 24, y: 528, width: 692, height: 20), secondary: true, in: content)
         edgeChooser.frame = NSRect(x: 24, y: 490, width: 312, height: 28)
         edgeChooser.target = self
         edgeChooser.action = #selector(changeSelectedEdge)
         edgeChooser.setAccessibilityLabel("Selected trackpad edge")
         content.addSubview(edgeChooser)
-        diagram.onSelect = { [weak self] edge in self?.selectedEdge = edge; self?.refreshControls() }
+        diagram.onSelect = { [weak self] edge in
+            self?.selectedEdge = edge
+            self?.selectedTapZone = edge.tapZones[1]
+            self?.refreshControls()
+        }
+        diagram.onSelectZone = { [weak self] zone in self?.selectedTapZone = zone; self?.refreshControls() }
         content.addSubview(diagram)
 
         instruction.frame = NSRect(x: 24, y: 198, width: 312, height: 66)
@@ -97,12 +102,15 @@ final class SettingsWindow: NSObject {
         sensitivityValue.alignment = .right
         content.addSubview(sensitivityValue)
 
-        startTapTitle.frame = NSRect(x: 374, y: 246, width: 342, height: 20)
-        content.addSubview(startTapTitle)
-        configure(startTapPicker, titles: TapAction.allCases.map(\.title), frame: NSRect(x: 374, y: 214, width: 342, height: 28), action: #selector(changeStartTap), accessibility: "Start double-tap action", in: content)
-        endTapTitle.frame = NSRect(x: 374, y: 178, width: 342, height: 20)
-        content.addSubview(endTapTitle)
-        configure(endTapPicker, titles: TapAction.allCases.map(\.title), frame: NSRect(x: 374, y: 146, width: 342, height: 28), action: #selector(changeEndTap), accessibility: "End double-tap action", in: content)
+        tapTitle.frame = NSRect(x: 374, y: 246, width: 342, height: 20)
+        content.addSubview(tapTitle)
+        configure(tapZonePicker, titles: TapZone.allCases.map(\.title), frame: NSRect(x: 374, y: 214, width: 342, height: 28), action: #selector(changeTapZone), accessibility: "Double-tap point", in: content)
+        configure(tapPicker, titles: TapAction.allCases.map(\.title), frame: NSRect(x: 374, y: 178, width: 342, height: 28), action: #selector(changeTap), accessibility: "Double-tap action", in: content)
+        let tapHelp = NSTextField(wrappingLabelWithString: "Select a point here or on the diagram. Each corner has one shared action.")
+        tapHelp.frame = NSRect(x: 374, y: 133, width: 342, height: 34)
+        tapHelp.font = .systemFont(ofSize: 12)
+        tapHelp.textColor = .secondaryLabelColor
+        content.addSubview(tapHelp)
 
         let divider = NSBox(frame: NSRect(x: 24, y: 115, width: 692, height: 1))
         divider.boxType = .separator
@@ -129,7 +137,7 @@ final class SettingsWindow: NSObject {
         reset.bezelStyle = .rounded
         reset.frame = NSRect(x: 548, y: 20, width: 172, height: 32)
         content.addSubview(reset)
-        let controls: [NSView] = [edgeChooser, actionPicker, modePicker, sensitivitySlider, startTapPicker, endTapPicker, widthSlider, hapticsSwitch, reset]
+        let controls: [NSView] = [edgeChooser, actionPicker, modePicker, sensitivitySlider, tapZonePicker, tapPicker, widthSlider, hapticsSwitch, reset]
         for (current, next) in zip(controls, controls.dropFirst() + [controls[0]]) { current.nextKeyView = next }
         window.initialFirstResponder = edgeChooser
     }
@@ -166,18 +174,17 @@ final class SettingsWindow: NSObject {
         sensitivitySlider.isEnabled = edge.action != .disabled && edge.effectiveMode == .relative
         sensitivityValue.stringValue = String(format: "%.2gx", edge.sensitivity)
         sensitivityValue.textColor = sensitivitySlider.isEnabled ? .labelColor : .tertiaryLabelColor
-        startTapPicker.selectItem(at: TapAction.allCases.firstIndex(of: edge.startTap) ?? 0)
-        endTapPicker.selectItem(at: TapAction.allCases.firstIndex(of: edge.endTap) ?? 0)
-        startTapTitle.stringValue = "\(TapZoneEnd.start.title(on: selectedEdge)) End Double Tap"
-        endTapTitle.stringValue = "\(TapZoneEnd.end.title(on: selectedEdge)) End Double Tap"
-        startTapPicker.setAccessibilityLabel(startTapTitle.stringValue)
-        endTapPicker.setAccessibilityLabel(endTapTitle.stringValue)
+        tapPicker.selectItem(at: TapAction.allCases.firstIndex(of: settings[selectedTapZone]) ?? 0)
+        tapZonePicker.selectItem(at: TapZone.allCases.firstIndex(of: selectedTapZone) ?? 0)
+        tapTitle.stringValue = "Double Tap"
+        tapPicker.setAccessibilityLabel("\(selectedTapZone.title) double-tap action")
         widthSlider.doubleValue = settings.stripWidth * 100
         widthValue.stringValue = String(format: "%.0f%%", settings.stripWidth * 100)
         hapticsSwitch.state = settings.hapticsEnabled ? .on : .off
         diagram.settings = settings
         diagram.selectedEdge = selectedEdge
-        instruction.stringValue = "Select a side on the diagram. Purple endpoints have a double-tap action.\nRelative adjustment starts from the current system level."
+        diagram.selectedTapZone = selectedTapZone
+        instruction.stringValue = "Click an edge for slide controls. Click a point for its double-tap action.\nPurple points have an action assigned."
         errorLabel.stringValue = store.loadError ?? ""
         errorLabel.isHidden = store.loadError == nil
     }
@@ -198,6 +205,7 @@ final class SettingsWindow: NSObject {
     @objc private func changeSelectedEdge() {
         guard TrackpadEdge.allCases.indices.contains(edgeChooser.selectedSegment) else { return }
         selectedEdge = TrackpadEdge.allCases[edgeChooser.selectedSegment]
+        selectedTapZone = selectedEdge.tapZones[1]
         refreshControls()
     }
     @objc private func changeAction() {
@@ -209,13 +217,16 @@ final class SettingsWindow: NSObject {
         updateEdge { $0.mode = AdjustmentMode.allCases[modePicker.indexOfSelectedItem] }
     }
     @objc private func changeSensitivity() { updateEdge { $0.sensitivity = (sensitivitySlider.doubleValue * 4).rounded() / 4 } }
-    @objc private func changeStartTap() {
-        guard TapAction.allCases.indices.contains(startTapPicker.indexOfSelectedItem) else { return }
-        updateEdge { $0.startTap = TapAction.allCases[startTapPicker.indexOfSelectedItem] }
+    @objc private func changeTapZone() {
+        guard TapZone.allCases.indices.contains(tapZonePicker.indexOfSelectedItem) else { return }
+        selectedTapZone = TapZone.allCases[tapZonePicker.indexOfSelectedItem]
+        refreshControls()
     }
-    @objc private func changeEndTap() {
-        guard TapAction.allCases.indices.contains(endTapPicker.indexOfSelectedItem) else { return }
-        updateEdge { $0.endTap = TapAction.allCases[endTapPicker.indexOfSelectedItem] }
+    @objc private func changeTap() {
+        guard TapAction.allCases.indices.contains(tapPicker.indexOfSelectedItem) else { return }
+        var settings = store.settings
+        settings[selectedTapZone] = TapAction.allCases[tapPicker.indexOfSelectedItem]
+        save(settings)
     }
     @objc private func changeWidth() { var value = store.settings; value.stripWidth = widthSlider.doubleValue.rounded() / 100; save(value) }
     @objc private func changeHaptics() { var value = store.settings; value.hapticsEnabled = hapticsSwitch.state == .on; save(value) }
@@ -234,11 +245,17 @@ private final class SettingsBackgroundView: NSView {
 private final class TrackpadDiagramView: NSView {
     var settings = EdgeSettings.defaults { didSet { needsDisplay = true } }
     var selectedEdge = TrackpadEdge.bottom { didSet { needsDisplay = true } }
+    var selectedTapZone = TapZone.bottomLeft { didSet { needsDisplay = true } }
     var onSelect: ((TrackpadEdge) -> Void)?
+    var onSelectZone: ((TapZone) -> Void)?
 
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
         let frame = bounds.insetBy(dx: 10, dy: 10)
+        for zone in TapZone.allCases {
+            let center = markerCenter(for: zone, inside: frame)
+            if hypot(point.x - center.x, point.y - center.y) <= 14 { onSelectZone?(zone); return }
+        }
         guard frame.insetBy(dx: -8, dy: -8).contains(point) else { return }
         let distances: [(TrackpadEdge, CGFloat)] = [(.top, abs(point.y - frame.maxY)), (.right, abs(point.x - frame.maxX)), (.bottom, abs(point.y - frame.minY)), (.left, abs(point.x - frame.minX))]
         if let nearest = distances.min(by: { $0.1 < $1.1 }), nearest.1 <= 32 { onSelect?(nearest.0) }
@@ -253,6 +270,7 @@ private final class TrackpadDiagramView: NSView {
         outline.lineWidth = 1.5
         outline.stroke()
         for edge in TrackpadEdge.allCases { draw(edge, inside: frame) }
+        for zone in TapZone.allCases { drawMarker(for: zone, inside: frame) }
         centered("\(selectedEdge.title) edge", y: frame.midY + 4, font: .systemFont(ofSize: 16, weight: .medium))
         centered(settings[selectedEdge].action.title, y: frame.midY - 19, font: .systemFont(ofSize: 12))
     }
@@ -276,23 +294,30 @@ private final class TrackpadDiagramView: NSView {
             focus.lineWidth = 1.5
             focus.stroke()
         }
-        for end in TapZoneEnd.allCases {
-            let along = end == .start ? 0.06 : 0.94
-            let point = horizontal
-                ? NSPoint(x: frame.minX + frame.width * along, y: strip.midY)
-                : NSPoint(x: strip.midX, y: frame.minY + frame.height * along)
-            let marker = NSBezierPath(ovalIn: NSRect(x: point.x - 6, y: point.y - 6, width: 12, height: 12))
-            if settings[edge][end] != .none {
-                NSColor.systemPurple.setFill()
-                marker.fill()
-                NSColor.controlBackgroundColor.setStroke()
-                marker.lineWidth = 1.5
-                marker.stroke()
-            } else {
-                NSColor.separatorColor.setStroke()
-                marker.lineWidth = 1
-                marker.stroke()
-            }
+    }
+
+    private func markerCenter(for zone: TapZone, inside frame: NSRect) -> NSPoint {
+        let point = zone.position
+        let xInset = point.y == 0.5 ? max(5, frame.width * settings.stripWidth) / 2 + 2 : 10
+        let yInset = point.x == 0.5 ? max(5, frame.height * settings.stripWidth) / 2 + 2 : 10
+        return NSPoint(x: frame.minX + xInset + (frame.width - 2 * xInset) * point.x,
+                       y: frame.minY + yInset + (frame.height - 2 * yInset) * point.y)
+    }
+
+    private func drawMarker(for zone: TapZone, inside frame: NSRect) {
+        let point = markerCenter(for: zone, inside: frame)
+        let rect = NSRect(x: point.x - 6, y: point.y - 6, width: 12, height: 12)
+        let marker = NSBezierPath(ovalIn: rect)
+        (settings[zone] == .none ? NSColor.controlBackgroundColor : .systemPurple).setFill()
+        marker.fill()
+        NSColor.separatorColor.setStroke()
+        marker.lineWidth = 1
+        marker.stroke()
+        if zone == selectedTapZone {
+            NSColor.keyboardFocusIndicatorColor.setStroke()
+            let focus = NSBezierPath(ovalIn: rect.insetBy(dx: -3, dy: -3))
+            focus.lineWidth = 1.5
+            focus.stroke()
         }
     }
 
