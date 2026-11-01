@@ -15,6 +15,7 @@ final class SettingsStore {
     var onChange: ((EdgeSettings) -> Void)?
     private let defaults: UserDefaults
 
+    var excludedAppIDs: [String] { document.excludedAppIDs }
     var profiles: [ControlProfile] { document.profiles }
     var activeProfileID: UUID { document.activeProfileID }
     var activeProfileName: String { document.profiles[activeProfileIndex].name }
@@ -139,6 +140,12 @@ final class SettingsStore {
     func setProfileSwitchZone(_ zone: TapZone?) throws {
         var changed = document
         changed.profileSwitchZone = zone
+        try save(changed)
+    }
+
+    func setExcludedAppIDs(_ bundleIDs: [String]) throws {
+        var changed = document
+        changed.excludedAppIDs = bundleIDs
         try save(changed)
     }
 

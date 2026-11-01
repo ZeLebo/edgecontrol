@@ -71,6 +71,10 @@ Media and double-tap actions use a medium pulse. Turn **Haptic Feedback** off in
 
 Settings save automatically. Earlier assignments are imported on update. If two old actions share a corner, a configured horizontal-edge action takes priority; otherwise the vertical-edge action is kept.
 
+## Application exclusions
+
+Open **General…** in Settings to choose apps where gestures should pause. Exclusions apply to every profile. Switching to another app resumes gestures after a full finger lift; manual Pause remains independent. Only app bundle identifiers are stored in preferences.
+
 ## Compatibility
 
 Volume requires an audio output with writable system volume. Brightness controls the built-in display. External trackpads and external display brightness are outside the current scope. Media commands and seeking depend on the active player. Haptic feedback requires a supported actuator on the selected built-in trackpad; transport errors appear in the menu while the controls remain available.

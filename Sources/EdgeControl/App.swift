@@ -38,8 +38,10 @@ enum EdgeControlMain {
         defer { defaults.removePersistentDomain(forName: domain) }
         let window = SettingsWindow(store: SettingsStore(defaults: defaults, previousDefaults: nil))
         let hud = LevelHUD()
+        let general = GeneralSettingsWindow(store: SettingsStore(defaults: defaults, previousDefaults: nil))
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             app.appearance = NSAppearance(named: appearance)
+            try general.renderPreview(to: directory.appendingPathComponent("general-\(name).png"), appearance: appearance)
             try window.renderPreview(to: directory.appendingPathComponent("settings-\(name).png"), appearance: appearance)
             try hud.renderPreview(to: directory.appendingPathComponent("profile-\(name).png"), appearance: appearance, profileName: "Everyday")
             for action in [EdgeAction.volume, .brightness, .keyboardBrightness, .tracks, .seek] {
@@ -47,6 +49,7 @@ enum EdgeControlMain {
                                       action: action, appearance: appearance)
             }
         }
+        general.close()
         window.close()
         print("Previews saved: \(directory.path)")
     }
@@ -59,6 +62,8 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private let audio = AudioOutput()
     private let brightness = BrightnessOutput()
     private let keyboard = KeyboardBacklight()
+    private let exclusions = ApplicationExclusions()
+    private var isExcluded = false
     private let media = MediaController()
     private let settings = SettingsStore()
     private let hud = LevelHUD()
@@ -111,10 +116,13 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             do { try brightness.start() } catch { controlErrors[.brightness] = error.localizedDescription }
             do { try keyboard.start() } catch { controlErrors[.keyboardBrightness] = error.localizedDescription }
         }
+        exclusions.onChange = { [weak self] _ in self?.frontmostChanged() }
+        exclusions.start()
         startInput()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        exclusions.stop()
         watchdog?.invalidate()
         watchdog = nil
         stopInput()
@@ -129,7 +137,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
 
     private func startInput() {
         resetInput()
-        guard !isPaused, suspensions.isEmpty else { cursor.stop(); updateMenu(); return }
+        guard !isPaused, suspensions.isEmpty, !isExcluded else { cursor.stop(); updateMenu(); return }
         do {
             guard CursorCapture.hasPermission else { fail("Accessibility permission is required"); return }
             try cursor.start()
@@ -169,11 +177,19 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     }
 
     private func settingsChanged() {
+        isExcluded = exclusions.currentBundleID.map { settings.excludedAppIDs.contains($0) } ?? false
         let switched = lastProfileID != settings.activeProfileID
         lastProfileID = settings.activeProfileID
         startInput()
         settingsWindow?.refresh()
         if switched { hud.showProfile(settings.activeProfileName) }
+    }
+
+    private func frontmostChanged() {
+        let excluded = exclusions.currentBundleID.map { settings.excludedAppIDs.contains($0) } ?? false
+        guard excluded != isExcluded else { return }
+        isExcluded = excluded
+        if excluded { stopInput(); updateMenu() } else { startInput() }
     }
 
     private func selectProfile(_ id: UUID) {
@@ -182,7 +198,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     }
 
     private func handle(_ frame: TrackpadFrame) {
-        guard !isPaused, suspensions.isEmpty, input.isRunning, frame.timestamp >= acceptedAfter else { return }
+        guard !isPaused, suspensions.isEmpty, !isExcluded, input.isRunning, frame.timestamp >= acceptedAfter else { return }
         let now = ProcessInfo.processInfo.systemUptime
         guard frame.timestamp.isFinite, frame.timestamp <= now, now - frame.timestamp < 0.5 else {
             fail("Trackpad data arrived too late; resume to retry")
@@ -372,7 +388,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         let warning = unavailable.flatMap { action in controlErrors[action].map { "\(action.title): \($0)" } }
         let feedbackWarning = settings.settings.hapticsEnabled ? hapticError : nil
         let status = errorMessage ?? (!suspensions.isEmpty ? "Session suspended" :
-            (isPaused ? "Paused" : (diagnostic ? "Diagnostic: outputs unchanged" : (warning ?? feedbackWarning ?? "Ready"))))
+            (isPaused ? "Paused" : (isExcluded ? "Paused for this app" : (diagnostic ? "Diagnostic: outputs unchanged" : (warning ?? feedbackWarning ?? "Ready")))))
         menu?.updateProfiles(settings.profiles, activeID: settings.activeProfileID)
         menu?.update(status: status, isPaused: isPaused, needsPermission: !CursorCapture.hasPermission)
     }

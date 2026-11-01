@@ -4,6 +4,7 @@ import AppKit
 final class SettingsWindow: NSObject {
     private let store: SettingsStore
     private let window: NSWindow
+    private var generalWindow: GeneralSettingsWindow?
     private let profilePicker = NSPopUpButton()
     private let globalSwitchPicker = NSPopUpButton()
     private let deleteProfileButton = NSButton(title: "Delete", target: nil, action: nil)
@@ -42,7 +43,7 @@ final class SettingsWindow: NSObject {
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
 
-    func close() { window.close() }
+    func close() { generalWindow?.close(); window.close() }
     func refresh() { refreshControls() }
 
     func renderPreview(to url: URL, appearance: NSAppearance.Name = .aqua) throws {
@@ -62,11 +63,13 @@ final class SettingsWindow: NSObject {
         window.contentView = content
         label("Profile", at: NSRect(x: 24, y: 662, width: 66, height: 22), in: content)
         configure(profilePicker, titles: [], frame: NSRect(x: 88, y: 655, width: 268, height: 30), action: #selector(changeProfile), accessibility: "Active profile", in: content)
+        var profileButtons: [NSView] = []
         for (index, item) in [("New", #selector(newProfile)), ("Duplicate", #selector(duplicateProfile)), ("Rename", #selector(renameProfile))].enumerated() {
             let button = NSButton(title: item.0, target: self, action: item.1)
             button.bezelStyle = .rounded
             button.frame = NSRect(x: 370 + index * 88, y: 654, width: 86, height: 32)
             content.addSubview(button)
+            profileButtons.append(button)
         }
         deleteProfileButton.target = self
         deleteProfileButton.action = #selector(deleteProfile)
@@ -156,11 +159,15 @@ final class SettingsWindow: NSObject {
         hapticsSwitch.action = #selector(changeHaptics)
         content.addSubview(hapticsSwitch)
         label("Changes are saved automatically.", at: NSRect(x: 24, y: 28, width: 400, height: 20), font: .systemFont(ofSize: 11), secondary: true, in: content)
+        let general = NSButton(title: "General…", target: self, action: #selector(openGeneral))
+        general.bezelStyle = .rounded
+        general.frame = NSRect(x: 374, y: 20, width: 150, height: 32)
+        content.addSubview(general)
         let reset = NSButton(title: "Restore Defaults", target: self, action: #selector(resetSettings))
         reset.bezelStyle = .rounded
         reset.frame = NSRect(x: 548, y: 20, width: 172, height: 32)
         content.addSubview(reset)
-        let controls: [NSView] = [profilePicker, globalSwitchPicker, edgeChooser, actionPicker, modePicker, sensitivitySlider, tapZonePicker, tapPicker, widthSlider, hapticsSwitch, reset]
+        let controls: [NSView] = [profilePicker] + profileButtons + [deleteProfileButton, globalSwitchPicker, edgeChooser, actionPicker, modePicker, sensitivitySlider, tapZonePicker, tapPicker, widthSlider, hapticsSwitch, general, reset]
         for (current, next) in zip(controls, controls.dropFirst() + [controls[0]]) { current.nextKeyView = next }
         window.initialFirstResponder = profilePicker
     }
@@ -285,6 +292,11 @@ final class SettingsWindow: NSObject {
         alert.addButton(withTitle: "Cancel")
         guard alert.runModal() == .alertFirstButtonReturn else { return }
         profileOperation { try store.deleteProfile(id: store.activeProfileID) }
+    }
+
+    @objc private func openGeneral() {
+        if generalWindow == nil { generalWindow = GeneralSettingsWindow(store: store) }
+        generalWindow?.show()
     }
 
     @objc private func changeSelectedEdge() {

@@ -204,9 +204,12 @@ struct ProfileDocument: Codable, Equatable, Sendable {
     var profiles: [ControlProfile]
     var activeProfileID: UUID
     var profileSwitchZone: TapZone?
+    var excludedAppIDs: [String] = []
 
     var isValid: Bool {
-        !profiles.isEmpty && Set(profiles.map(\.id)).count == profiles.count &&
+        Set(excludedAppIDs).count == excludedAppIDs.count &&
+            excludedAppIDs.allSatisfy { !$0.isEmpty && !$0.contains(where: { $0.isWhitespace || $0.isNewline }) } &&
+            !profiles.isEmpty && Set(profiles.map(\.id)).count == profiles.count &&
             profiles.contains { $0.id == activeProfileID } &&
             profiles.enumerated().allSatisfy { index, profile in
                 !profile.name.isEmpty && profile.name.count <= 40 &&
@@ -215,5 +218,18 @@ struct ProfileDocument: Codable, Equatable, Sendable {
                     profile.settings.isValid &&
                     TapZone.allCases.allSatisfy { profile.settings[$0] != .nextProfile }
             }
+    }
+}
+
+extension ProfileDocument {
+    private enum CodingKeys: String, CodingKey { case profiles, activeProfileID, profileSwitchZone, excludedAppIDs }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        profiles = try values.decode([ControlProfile].self, forKey: .profiles)
+        activeProfileID = try values.decode(UUID.self, forKey: .activeProfileID)
+        profileSwitchZone = try values.decodeIfPresent(TapZone.self, forKey: .profileSwitchZone)
+        // Earlier v5 releases had profiles before application exclusions were added.
+        excludedAppIDs = try values.contains(.excludedAppIDs) ? values.decode([String].self, forKey: .excludedAppIDs) : []
     }
 }

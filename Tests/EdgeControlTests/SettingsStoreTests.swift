@@ -657,6 +657,51 @@ struct SettingsStoreTests {
         }
     }
 
+    @Test func exclusionsAreGlobalAcrossProfilesAndPersisted() throws {
+        try withDefaults { defaults in
+            let store = SettingsStore(defaults: defaults, previousDefaults: nil)
+            let ids = ["org.example.Game", "org.example.Editor"]
+            try store.setExcludedAppIDs(ids)
+            try store.nextProfile()
+            #expect(store.excludedAppIDs == ids)
+            #expect(SettingsStore(defaults: defaults, previousDefaults: nil).excludedAppIDs == ids)
+            for invalid in [[""], ["invalid id"], ["org.example.Game", "org.example.Game"]] {
+                #expect(throws: (any Error).self) { try store.setExcludedAppIDs(invalid) }
+                #expect(store.excludedAppIDs == ids)
+            }
+        }
+    }
+
+    @Test func earlierV5ProfilesWithoutExclusionsRemainReadable() throws {
+        try withDefaults { defaults in
+            let store = SettingsStore(defaults: defaults, previousDefaults: nil)
+            try store.setProfileSwitchZone(.topRight)
+            let id = store.activeProfileID
+            let data = try #require(defaults.data(forKey: SettingsStore.storageKey))
+            var json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            json.removeValue(forKey: "excludedAppIDs")
+            defaults.set(try JSONSerialization.data(withJSONObject: json), forKey: SettingsStore.storageKey)
+            let restored = SettingsStore(defaults: defaults, previousDefaults: nil)
+            #expect(restored.loadError == nil)
+            #expect(restored.activeProfileID == id)
+            #expect(restored.profileSwitchZone == .topRight)
+            #expect(restored.excludedAppIDs.isEmpty)
+        }
+    }
+
+    @Test func nullExclusionsAreCorruptionRatherThanAMissingUpgradeField() throws {
+        try withDefaults { defaults in
+            _ = SettingsStore(defaults: defaults, previousDefaults: nil)
+            let data = try #require(defaults.data(forKey: SettingsStore.storageKey))
+            var json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+            json["excludedAppIDs"] = NSNull()
+            let invalid = try JSONSerialization.data(withJSONObject: json)
+            defaults.set(invalid, forKey: SettingsStore.storageKey)
+            #expect(SettingsStore(defaults: defaults, previousDefaults: nil).loadError != nil)
+            #expect(defaults.data(forKey: SettingsStore.storageKey) == invalid)
+        }
+    }
+
     private func profileRecord(settings: EdgeSettings) throws -> Data {
         let profile = ControlProfile(name: "Everyday", settings: settings)
         return try JSONEncoder().encode(ProfileDocument(profiles: [profile], activeProfileID: profile.id, profileSwitchZone: nil))

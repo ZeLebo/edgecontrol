@@ -2,6 +2,12 @@
 
 Release dates are shown in UTC. Download app archives and SHA256 checksums from the linked releases.
 
+## [2.3.0](https://github.com/ZeLebo/edgecontrol/releases/tag/v2.3) (2026-11-01)
+
+- Add a global app exclusion list in General Settings, selected with the native app picker.
+- Pause input and release the pointer in excluded apps; resume requiring a full finger lift while preserving manual Pause.
+- Store bundle identifiers only and preserve earlier profile records.
+
 ## [2.2.0](https://github.com/ZeLebo/edgecontrol/releases/tag/v2.2) (2026-11-01)
 
 - Hold Shift for five times finer movement, including relative levels and media gestures.
