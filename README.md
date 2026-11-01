@@ -71,6 +71,10 @@ Media and double-tap actions use a medium pulse. Turn **Haptic Feedback** off in
 
 Settings save automatically. Earlier assignments are imported on update. If two old actions share a corner, a configured horizontal-edge action takes priority; otherwise the vertical-edge action is kept.
 
+## Launch at login
+
+Enable **Launch at Login** in **General…** to start EdgeControl when you log in. The checkbox reads the macOS registration state. If approval is required, the status points to System Settings > General > Login Items. Building, testing, or opening Settings does not register the app automatically.
+
 ## Application exclusions
 
 Open **General…** in Settings to choose apps where gestures should pause. Exclusions apply to every profile. Switching to another app resumes gestures after a full finger lift; manual Pause remains independent. Only app bundle identifiers are stored in preferences.

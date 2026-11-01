@@ -4,13 +4,17 @@ import UniformTypeIdentifiers
 @MainActor
 final class GeneralSettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate {
     private let store: SettingsStore
+    private let launchAtLogin: LaunchAtLogin
+    private let loginSwitch = NSButton(checkboxWithTitle: "Launch at Login", target: nil, action: nil)
+    private let loginStatus = NSTextField(wrappingLabelWithString: "")
     private let window: NSWindow
     private let table = NSTableView()
     private let removeButton = NSButton(title: "Remove", target: nil, action: nil)
     private let errorLabel = NSTextField(wrappingLabelWithString: "")
 
-    init(store: SettingsStore) {
+    init(store: SettingsStore, launchAtLogin: LaunchAtLogin = LaunchAtLogin()) {
         self.store = store
+        self.launchAtLogin = launchAtLogin
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 360),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         super.init()
@@ -46,6 +50,14 @@ final class GeneralSettingsWindow: NSObject, NSTableViewDataSource, NSTableViewD
         window.contentView = content
         label("General", frame: NSRect(x: 20, y: 326, width: 520, height: 25),
               font: .systemFont(ofSize: 20, weight: .semibold), in: content)
+        loginSwitch.frame = NSRect(x: 20, y: 294, width: 240, height: 24)
+        loginSwitch.target = self
+        loginSwitch.action = #selector(changeLaunchAtLogin)
+        content.addSubview(loginSwitch)
+        loginStatus.frame = NSRect(x: 20, y: 267, width: 520, height: 25)
+        loginStatus.font = .systemFont(ofSize: 11)
+        loginStatus.textColor = .secondaryLabelColor
+        content.addSubview(loginStatus)
         label("Pause gestures in selected apps", frame: NSRect(x: 20, y: 242, width: 520, height: 22),
               font: .systemFont(ofSize: 13, weight: .semibold), in: content)
         label("Gestures resume when you switch to another app.", frame: NSRect(x: 20, y: 222, width: 520, height: 18),
@@ -83,10 +95,11 @@ final class GeneralSettingsWindow: NSObject, NSTableViewDataSource, NSTableViewD
         errorLabel.font = .systemFont(ofSize: 11)
         errorLabel.textColor = .systemOrange
         content.addSubview(errorLabel)
+        loginSwitch.nextKeyView = add
         add.nextKeyView = table
         table.nextKeyView = removeButton
-        removeButton.nextKeyView = add
-        window.initialFirstResponder = add
+        removeButton.nextKeyView = loginSwitch
+        window.initialFirstResponder = loginSwitch
     }
 
     private func label(_ text: String, frame: NSRect, font: NSFont, secondary: Bool = false, in content: NSView) {
@@ -98,6 +111,8 @@ final class GeneralSettingsWindow: NSObject, NSTableViewDataSource, NSTableViewD
     }
 
     private func refreshControls() {
+        loginSwitch.state = launchAtLogin.isRegistered ? .on : .off
+        loginStatus.stringValue = launchAtLogin.statusText
         table.reloadData()
         removeButton.isEnabled = !table.selectedRowIndexes.isEmpty
         errorLabel.stringValue = store.loadError ?? ""
@@ -128,6 +143,11 @@ final class GeneralSettingsWindow: NSObject, NSTableViewDataSource, NSTableViewD
 
     func tableViewSelectionDidChange(_ notification: Notification) {
         removeButton.isEnabled = !table.selectedRowIndexes.isEmpty
+    }
+
+    @objc private func changeLaunchAtLogin() {
+        do { try launchAtLogin.setEnabled(loginSwitch.state == .on); refreshControls() }
+        catch { refreshControls(); errorLabel.stringValue = error.localizedDescription }
     }
 
     @objc private func addApplications() {

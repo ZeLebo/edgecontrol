@@ -2,6 +2,11 @@
 
 Release dates are shown in UTC. Download app archives and SHA256 checksums from the linked releases.
 
+## [2.4.0](https://github.com/ZeLebo/edgecontrol/releases/tag/v2.4) (2026-11-01)
+
+- Add native Launch at Login control in General Settings, using the actual macOS registration state.
+- Show when system approval is still required. Register or unregister only when the user changes the checkbox.
+
 ## [2.3.0](https://github.com/ZeLebo/edgecontrol/releases/tag/v2.3) (2026-11-01)
 
 - Add a global app exclusion list in General Settings, selected with the native app picker.
