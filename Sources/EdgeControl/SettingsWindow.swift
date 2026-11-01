@@ -4,6 +4,9 @@ import AppKit
 final class SettingsWindow: NSObject {
     private let store: SettingsStore
     private let window: NSWindow
+    private let profilePicker = NSPopUpButton()
+    private let globalSwitchPicker = NSPopUpButton()
+    private let deleteProfileButton = NSButton(title: "Delete", target: nil, action: nil)
     private var selectedEdge: TrackpadEdge = .bottom
     private var selectedTapZone: TapZone = .bottomLeft
     private let edgeChooser = NSSegmentedControl(labels: TrackpadEdge.allCases.map(\.title), trackingMode: .selectOne, target: nil, action: nil)
@@ -24,7 +27,7 @@ final class SettingsWindow: NSObject {
 
     init(store: SettingsStore) {
         self.store = store
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 740, height: 610), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 740, height: 710), styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         super.init()
         window.title = "EdgeControl Settings"
         window.isReleasedWhenClosed = false
@@ -40,6 +43,7 @@ final class SettingsWindow: NSObject {
     }
 
     func close() { window.close() }
+    func refresh() { refreshControls() }
 
     func renderPreview(to url: URL, appearance: NSAppearance.Name = .aqua) throws {
         guard let content = window.contentView else { throw SettingsPreviewError.unavailable }
@@ -54,8 +58,27 @@ final class SettingsWindow: NSObject {
     }
 
     private func buildContent() {
-        let content = SettingsBackgroundView(frame: NSRect(x: 0, y: 0, width: 740, height: 610))
+        let content = SettingsBackgroundView(frame: NSRect(x: 0, y: 0, width: 740, height: 710))
         window.contentView = content
+        label("Profile", at: NSRect(x: 24, y: 662, width: 66, height: 22), in: content)
+        configure(profilePicker, titles: [], frame: NSRect(x: 88, y: 655, width: 268, height: 30), action: #selector(changeProfile), accessibility: "Active profile", in: content)
+        for (index, item) in [("New", #selector(newProfile)), ("Duplicate", #selector(duplicateProfile)), ("Rename", #selector(renameProfile))].enumerated() {
+            let button = NSButton(title: item.0, target: self, action: item.1)
+            button.bezelStyle = .rounded
+            button.frame = NSRect(x: 370 + index * 88, y: 654, width: 86, height: 32)
+            content.addSubview(button)
+        }
+        deleteProfileButton.target = self
+        deleteProfileButton.action = #selector(deleteProfile)
+        deleteProfileButton.bezelStyle = .rounded
+        deleteProfileButton.frame = NSRect(x: 634, y: 654, width: 86, height: 32)
+        content.addSubview(deleteProfileButton)
+        label("Profile Switch", at: NSRect(x: 24, y: 618, width: 126, height: 22), in: content)
+        configure(globalSwitchPicker, titles: ["Unassigned"] + TapZone.allCases.map(\.title), frame: NSRect(x: 150, y: 612, width: 206, height: 30), action: #selector(changeGlobalSwitch), accessibility: "Global profile-switch point", in: content)
+        label("Double tap. Shared by every profile.", at: NSRect(x: 374, y: 618, width: 342, height: 22), font: .systemFont(ofSize: 12), secondary: true, in: content)
+        let profileDivider = NSBox(frame: NSRect(x: 24, y: 601, width: 692, height: 1))
+        profileDivider.boxType = .separator
+        content.addSubview(profileDivider)
         label("Trackpad Controls", at: NSRect(x: 24, y: 557, width: 692, height: 32), font: .systemFont(ofSize: 24, weight: .semibold), in: content)
         label("Choose an edge to slide, or a point to double tap.", at: NSRect(x: 24, y: 528, width: 692, height: 20), secondary: true, in: content)
         edgeChooser.frame = NSRect(x: 24, y: 490, width: 312, height: 28)
@@ -105,7 +128,7 @@ final class SettingsWindow: NSObject {
         tapTitle.frame = NSRect(x: 374, y: 246, width: 342, height: 20)
         content.addSubview(tapTitle)
         configure(tapZonePicker, titles: TapZone.allCases.map(\.title), frame: NSRect(x: 374, y: 214, width: 342, height: 28), action: #selector(changeTapZone), accessibility: "Double-tap point", in: content)
-        configure(tapPicker, titles: TapAction.allCases.map(\.title), frame: NSRect(x: 374, y: 178, width: 342, height: 28), action: #selector(changeTap), accessibility: "Double-tap action", in: content)
+        configure(tapPicker, titles: TapAction.configurableCases.map(\.title), frame: NSRect(x: 374, y: 178, width: 342, height: 28), action: #selector(changeTap), accessibility: "Double-tap action", in: content)
         let tapHelp = NSTextField(wrappingLabelWithString: "Select a point here or on the diagram. Each corner has one shared action.")
         tapHelp.frame = NSRect(x: 374, y: 133, width: 342, height: 34)
         tapHelp.font = .systemFont(ofSize: 12)
@@ -137,9 +160,9 @@ final class SettingsWindow: NSObject {
         reset.bezelStyle = .rounded
         reset.frame = NSRect(x: 548, y: 20, width: 172, height: 32)
         content.addSubview(reset)
-        let controls: [NSView] = [edgeChooser, actionPicker, modePicker, sensitivitySlider, tapZonePicker, tapPicker, widthSlider, hapticsSwitch, reset]
+        let controls: [NSView] = [profilePicker, globalSwitchPicker, edgeChooser, actionPicker, modePicker, sensitivitySlider, tapZonePicker, tapPicker, widthSlider, hapticsSwitch, reset]
         for (current, next) in zip(controls, controls.dropFirst() + [controls[0]]) { current.nextKeyView = next }
-        window.initialFirstResponder = edgeChooser
+        window.initialFirstResponder = profilePicker
     }
 
     @discardableResult
@@ -163,6 +186,11 @@ final class SettingsWindow: NSObject {
 
     private func refreshControls() {
         let settings = store.settings
+        profilePicker.removeAllItems()
+        profilePicker.addItems(withTitles: store.profiles.map(\.name))
+        profilePicker.selectItem(at: store.profiles.firstIndex { $0.id == store.activeProfileID } ?? 0)
+        deleteProfileButton.isEnabled = store.profiles.count > 1
+        globalSwitchPicker.selectItem(at: store.profileSwitchZone.flatMap { TapZone.allCases.firstIndex(of: $0) }.map { $0 + 1 } ?? 0)
         let edge = settings[selectedEdge]
         edgeChooser.selectedSegment = TrackpadEdge.allCases.firstIndex(of: selectedEdge) ?? 0
         edgeTitle.stringValue = "\(selectedEdge.title) Edge"
@@ -174,14 +202,21 @@ final class SettingsWindow: NSObject {
         sensitivitySlider.isEnabled = edge.action != .disabled && edge.effectiveMode == .relative
         sensitivityValue.stringValue = String(format: "%.2gx", edge.sensitivity)
         sensitivityValue.textColor = sensitivitySlider.isEnabled ? .labelColor : .tertiaryLabelColor
-        tapPicker.selectItem(at: TapAction.allCases.firstIndex(of: settings[selectedTapZone]) ?? 0)
+        tapPicker.removeAllItems()
+        let reserved = store.profileSwitchZone == selectedTapZone
+        if reserved { tapPicker.addItem(withTitle: "Next Profile (Global)") }
+        else {
+            tapPicker.addItems(withTitles: TapAction.configurableCases.map(\.title))
+            tapPicker.selectItem(at: TapAction.configurableCases.firstIndex(of: settings[selectedTapZone]) ?? 0)
+        }
+        tapPicker.isEnabled = !reserved
         tapZonePicker.selectItem(at: TapZone.allCases.firstIndex(of: selectedTapZone) ?? 0)
         tapTitle.stringValue = "Double Tap"
         tapPicker.setAccessibilityLabel("\(selectedTapZone.title) double-tap action")
         widthSlider.doubleValue = settings.stripWidth * 100
         widthValue.stringValue = String(format: "%.0f%%", settings.stripWidth * 100)
         hapticsSwitch.state = settings.hapticsEnabled ? .on : .off
-        diagram.settings = settings
+        diagram.settings = store.gestureSettings
         diagram.selectedEdge = selectedEdge
         diagram.selectedTapZone = selectedTapZone
         instruction.stringValue = "Click an edge for slide controls. Click a point for its double-tap action.\nPurple points have an action assigned."
@@ -200,6 +235,56 @@ final class SettingsWindow: NSObject {
     private func save(_ settings: EdgeSettings) {
         do { try store.update(settings); refreshControls() }
         catch { refreshControls(); errorLabel.stringValue = error.localizedDescription; errorLabel.isHidden = false }
+    }
+
+    private func profileOperation(_ operation: () throws -> Void) {
+        do { try operation(); refreshControls() }
+        catch { errorLabel.stringValue = error.localizedDescription; errorLabel.isHidden = false }
+    }
+
+    private func requestProfileName(title: String, initial: String, save: (String) throws -> Void) {
+        let alert = NSAlert()
+        alert.messageText = title
+        let field = NSTextField(string: initial)
+        field.frame = NSRect(x: 0, y: 0, width: 280, height: 24)
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Cancel")
+        alert.window.initialFirstResponder = field
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        profileOperation { try save(field.stringValue) }
+    }
+
+    @objc private func changeProfile() {
+        guard store.profiles.indices.contains(profilePicker.indexOfSelectedItem) else { return }
+        profileOperation { try store.selectProfile(id: store.profiles[profilePicker.indexOfSelectedItem].id) }
+    }
+    @objc private func changeGlobalSwitch() {
+        let index = globalSwitchPicker.indexOfSelectedItem
+        guard index >= 0, index <= TapZone.allCases.count else { return }
+        profileOperation { try store.setProfileSwitchZone(index == 0 ? nil : TapZone.allCases[index - 1]) }
+    }
+    @objc private func newProfile() {
+        requestProfileName(title: "New Profile", initial: "") { _ = try store.createProfile(named: $0) }
+    }
+    @objc private func duplicateProfile() {
+        requestProfileName(title: "Duplicate Profile", initial: store.activeProfileName + " Copy") {
+            _ = try store.duplicateProfile(id: store.activeProfileID, named: $0)
+        }
+    }
+    @objc private func renameProfile() {
+        requestProfileName(title: "Rename Profile", initial: store.activeProfileName) {
+            try store.renameProfile(id: store.activeProfileID, to: $0)
+        }
+    }
+    @objc private func deleteProfile() {
+        let alert = NSAlert()
+        alert.messageText = "Delete \(store.activeProfileName)?"
+        alert.informativeText = "The other profiles will be kept."
+        alert.addButton(withTitle: "Delete")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        profileOperation { try store.deleteProfile(id: store.activeProfileID) }
     }
 
     @objc private func changeSelectedEdge() {
@@ -223,9 +308,9 @@ final class SettingsWindow: NSObject {
         refreshControls()
     }
     @objc private func changeTap() {
-        guard TapAction.allCases.indices.contains(tapPicker.indexOfSelectedItem) else { return }
+        guard TapAction.configurableCases.indices.contains(tapPicker.indexOfSelectedItem) else { return }
         var settings = store.settings
-        settings[selectedTapZone] = TapAction.allCases[tapPicker.indexOfSelectedItem]
+        settings[selectedTapZone] = TapAction.configurableCases[tapPicker.indexOfSelectedItem]
         save(settings)
     }
     @objc private func changeWidth() { var value = store.settings; value.stripWidth = widthSlider.doubleValue.rounded() / 100; save(value) }

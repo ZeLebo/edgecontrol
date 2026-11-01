@@ -24,6 +24,14 @@ The menu bar icon provides **Settings**, **Pause / Resume**, and **Quit**. Relea
 
 The active strip starts at 5% of the trackpad's width or height. Touching an edge alone does not change a level. Start sliding one finger along the strip to adjust it; the pointer stays still while the slide is active. Lifting the finger, leaving the strip, or adding another finger ends the gesture.
 
+## Profiles
+
+Use the profile picker in Settings or the menu bar to switch between Everyday and Media. Create, duplicate, rename, or delete profiles to keep separate edge assignments, modes, sensitivity, and tap actions. Switching profiles preserves the current system levels.
+
+Choose a **Profile Switch** point in Settings to cycle profiles with a double tap. This point is shared by every profile and takes priority over its ordinary tap action. The original action is preserved underneath. Leave the switch unassigned to use only the menu and profile picker. A short HUD shows the selected profile.
+
+Existing settings become the Everyday profile on update. The Media preset adds track navigation and seeking.
+
 ## Customize gestures
 
 Open **Settings** and select any of the four edges. Assign **Volume**, **Brightness**, **Track Navigation**, **Seek**, or **Disabled**. Edge width is adjustable from 3% to 15%.

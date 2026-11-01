@@ -34,6 +34,13 @@ final class LevelHUD {
         finish()
     }
 
+    func showProfile(_ name: String) {
+        prepare(width: 260)
+        content.configure(profile: name)
+        present()
+        finish()
+    }
+
     private func prepare(width: CGFloat) {
         hideTimer?.invalidate()
         hideTimer = nil
@@ -70,10 +77,13 @@ final class LevelHUD {
         hide()
     }
 
-    func renderPreview(to url: URL, action: EdgeAction = .volume, appearance: NSAppearance.Name = .aqua) throws {
+    func renderPreview(to url: URL, action: EdgeAction = .volume, appearance: NSAppearance.Name = .aqua, profileName: String? = nil) throws {
         panel.appearance = NSAppearance(named: appearance)
         content.appearance = panel.appearance
-        if action.isLevel {
+        if let profileName {
+            prepare(width: 260)
+            content.configure(profile: profileName)
+        } else if action.isLevel {
             prepare(width: 220)
             content.configure(action: action, percent: 64, diagnostic: false)
         } else {
@@ -100,6 +110,7 @@ private final class HUDPanel: NSPanel {
 @MainActor
 private final class HUDContentView: NSView {
     private let icon = NSImageView()
+    private let profileName = NSTextField(labelWithString: "")
     private let meter = HUDMeterView(frame: NSRect(x: 52, y: 22, width: 150, height: 8))
     private var symbol: String?
 
@@ -108,6 +119,10 @@ private final class HUDContentView: NSView {
         icon.imageScaling = .scaleProportionallyDown
         icon.contentTintColor = .labelColor
         addSubview(icon)
+        profileName.font = .systemFont(ofSize: 14, weight: .medium)
+        profileName.lineBreakMode = .byTruncatingTail
+        profileName.isHidden = true
+        addSubview(profileName)
         addSubview(meter)
         setAccessibilityElement(true)
     }
@@ -115,6 +130,7 @@ private final class HUDContentView: NSView {
     required init?(coder: NSCoder) { nil }
 
     func configure(action: EdgeAction, percent: Int, diagnostic: Bool) {
+        profileName.isHidden = true
         icon.frame = NSRect(x: 17, y: 16, width: 20, height: 20)
         setSymbol(action.symbol)
         meter.isHidden = false
@@ -125,10 +141,22 @@ private final class HUDContentView: NSView {
     }
 
     func configure(symbol: String, accessibilityLabel: String) {
+        profileName.isHidden = true
         icon.frame = NSRect(x: (bounds.width - 24) / 2, y: 14, width: 24, height: 24)
         setSymbol(symbol)
         meter.isHidden = true
         setAccessibilityLabel(accessibilityLabel)
+        needsDisplay = true
+    }
+
+    func configure(profile name: String) {
+        icon.frame = NSRect(x: 17, y: 16, width: 20, height: 20)
+        setSymbol("rectangle.stack.fill")
+        meter.isHidden = true
+        profileName.frame = NSRect(x: 50, y: 16, width: bounds.width - 67, height: 21)
+        profileName.stringValue = name
+        profileName.isHidden = false
+        setAccessibilityLabel("Profile: \(name)")
         needsDisplay = true
     }
 

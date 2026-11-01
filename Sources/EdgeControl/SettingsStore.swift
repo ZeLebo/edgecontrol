@@ -2,17 +2,33 @@ import Foundation
 
 @MainActor
 final class SettingsStore {
-    static let storageKey = "edgecontrol.settings.v4"
-    static let previousStorageKey = "edgecontrol.settings.v3"
+    static let storageKey = "edgecontrol.settings.v5"
+    static let previousStorageKey = "edgecontrol.settings.v4"
+    static let edgeStorageKey = "edgecontrol.settings.v3"
     static let flatStorageKey = "edgecontrol.settings.v2"
-    // One-time import from the previous application's domain; never used after a v4 record exists.
+    // One-time import from the previous application's domain; never used after a v5 record exists.
     static let legacyDomain = "local.edgebar.app"
     static let legacyStorageKey = "edgebar.settings.v2"
 
-    private(set) var settings: EdgeSettings
+    private var document: ProfileDocument
     private(set) var loadError: String?
     var onChange: ((EdgeSettings) -> Void)?
     private let defaults: UserDefaults
+
+    var profiles: [ControlProfile] { document.profiles }
+    var activeProfileID: UUID { document.activeProfileID }
+    var activeProfileName: String { document.profiles[activeProfileIndex].name }
+    var profileSwitchZone: TapZone? { document.profileSwitchZone }
+    var settings: EdgeSettings { document.profiles[activeProfileIndex].settings }
+    var gestureSettings: EdgeSettings {
+        var value = settings
+        if let profileSwitchZone { value[profileSwitchZone] = .nextProfile }
+        return value
+    }
+    private var activeProfileIndex: Int {
+        // Every loaded or saved document is validated before replacing the active state.
+        document.profiles.firstIndex { $0.id == document.activeProfileID }!
+    }
 
     convenience init(defaults: UserDefaults = .standard) {
         self.init(defaults: defaults, previousDefaults: UserDefaults(suiteName: Self.legacyDomain))
@@ -20,34 +36,38 @@ final class SettingsStore {
 
     init(defaults: UserDefaults, previousDefaults: UserDefaults?) {
         self.defaults = defaults
-        settings = .defaults
+        document = Self.initialDocument(settings: .defaults)
         if let record = defaults.object(forKey: Self.storageKey) {
             do {
                 guard let data = record as? Data else { throw SettingsStoreError.invalidRecord }
-                let value = try JSONDecoder().decode(EdgeSettings.self, from: data)
+                let value = try JSONDecoder().decode(ProfileDocument.self, from: data)
                 guard value.isValid else { throw SettingsStoreError.invalidRecord }
-                settings = value
+                document = value
             } catch {
-                loadError = "Saved settings could not be read. Defaults are active until you save or reset."
+                loadError = "Saved profiles could not be read. Defaults are active until you save or reset."
             }
             return
         }
-        let previous = defaults.object(forKey: Self.previousStorageKey)
-        let flat = defaults.object(forKey: Self.flatStorageKey)
-            ?? previousDefaults?.object(forKey: Self.legacyStorageKey)
-        guard previous != nil || flat != nil else { return }
         do {
-            let value: EdgeSettings
-            if let previous {
-                guard let data = previous as? Data else { throw SettingsStoreError.invalidRecord }
-                value = try JSONDecoder().decode(PreviousSettings.self, from: data).currentSettings
+            let initial: EdgeSettings
+            if let record = defaults.object(forKey: Self.previousStorageKey) {
+                guard let data = record as? Data else { throw SettingsStoreError.invalidRecord }
+                initial = try JSONDecoder().decode(EdgeSettings.self, from: data)
+            } else if let record = defaults.object(forKey: Self.edgeStorageKey) {
+                guard let data = record as? Data else { throw SettingsStoreError.invalidRecord }
+                initial = try JSONDecoder().decode(PreviousSettings.self, from: data).currentSettings
+            } else if let record = defaults.object(forKey: Self.flatStorageKey)
+                ?? previousDefaults?.object(forKey: Self.legacyStorageKey) {
+                guard let data = record as? Data else { throw SettingsStoreError.invalidRecord }
+                initial = try JSONDecoder().decode(FlatSettings.self, from: data).currentSettings
             } else {
-                guard let data = flat as? Data else { throw SettingsStoreError.invalidRecord }
-                value = try JSONDecoder().decode(FlatSettings.self, from: data).currentSettings
+                initial = .defaults
             }
+            let value = Self.initialDocument(settings: initial)
             guard value.isValid else { throw SettingsStoreError.invalidRecord }
+            // Persist the seed once so profile identities survive a restart before the first edit.
             defaults.set(try JSONEncoder().encode(value), forKey: Self.storageKey)
-            settings = value
+            document = value
         } catch {
             loadError = "Previous settings could not be imported. Defaults are active until you save or reset."
         }
@@ -55,14 +75,102 @@ final class SettingsStore {
 
     func update(_ value: EdgeSettings) throws {
         guard value.isValid else { throw SettingsStoreError.invalidValues }
-        let data = try JSONEncoder().encode(value)
-        defaults.set(data, forKey: Self.storageKey)
-        settings = value
-        loadError = nil
-        onChange?(value)
+        guard TapZone.allCases.allSatisfy({ value[$0] != .nextProfile }) else {
+            throw SettingsStoreError.globalSwitchOnly
+        }
+        var changed = document
+        changed.profiles[activeProfileIndex].settings = value
+        try save(changed)
     }
 
     func reset() throws { try update(.defaults) }
+
+    func selectProfile(id: UUID) throws {
+        guard profiles.contains(where: { $0.id == id }) else { throw SettingsStoreError.profileNotFound }
+        var changed = document
+        changed.activeProfileID = id
+        try save(changed)
+    }
+
+    func nextProfile() throws {
+        try selectProfile(id: profiles[(activeProfileIndex + 1) % profiles.count].id)
+    }
+
+    @discardableResult
+    func createProfile(named name: String) throws -> UUID {
+        let profile = ControlProfile(name: try validName(name))
+        var changed = document
+        changed.profiles.append(profile)
+        changed.activeProfileID = profile.id
+        try save(changed)
+        return profile.id
+    }
+
+    @discardableResult
+    func duplicateProfile(id: UUID, named name: String) throws -> UUID {
+        guard let original = profiles.first(where: { $0.id == id }) else { throw SettingsStoreError.profileNotFound }
+        let profile = ControlProfile(name: try validName(name), settings: original.settings)
+        var changed = document
+        changed.profiles.append(profile)
+        changed.activeProfileID = profile.id
+        try save(changed)
+        return profile.id
+    }
+
+    func renameProfile(id: UUID, to name: String) throws {
+        guard let index = profiles.firstIndex(where: { $0.id == id }) else { throw SettingsStoreError.profileNotFound }
+        let name = try validName(name, excluding: id)
+        var changed = document
+        changed.profiles[index].name = name
+        try save(changed)
+    }
+
+    func deleteProfile(id: UUID) throws {
+        guard let index = profiles.firstIndex(where: { $0.id == id }) else { throw SettingsStoreError.profileNotFound }
+        guard profiles.count > 1 else { throw SettingsStoreError.lastProfile }
+        var changed = document
+        changed.profiles.remove(at: index)
+        if changed.activeProfileID == id {
+            changed.activeProfileID = changed.profiles[min(index, changed.profiles.count - 1)].id
+        }
+        try save(changed)
+    }
+
+    func setProfileSwitchZone(_ zone: TapZone?) throws {
+        var changed = document
+        changed.profileSwitchZone = zone
+        try save(changed)
+    }
+
+    private func validName(_ name: String, excluding id: UUID? = nil) throws -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 40 else { throw SettingsStoreError.invalidName }
+        guard !profiles.contains(where: { $0.id != id && $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) else {
+            throw SettingsStoreError.duplicateName
+        }
+        return trimmed
+    }
+
+    private func save(_ value: ProfileDocument) throws {
+        guard value.isValid else { throw SettingsStoreError.invalidRecord }
+        defaults.set(try JSONEncoder().encode(value), forKey: Self.storageKey)
+        document = value
+        loadError = nil
+        onChange?(settings)
+    }
+
+    private static func initialDocument(settings: EdgeSettings) -> ProfileDocument {
+        let everyday = ControlProfile(name: "Everyday", settings: settings)
+        var mediaSettings = settings
+        mediaSettings.bottom.action = .volume
+        mediaSettings.right.action = .tracks
+        mediaSettings.right.mode = .relative
+        mediaSettings.top.action = .seek
+        mediaSettings.top.mode = .relative
+        mediaSettings.left.action = .brightness
+        let media = ControlProfile(name: "Media", settings: mediaSettings)
+        return ProfileDocument(profiles: [everyday, media], activeProfileID: everyday.id, profileSwitchZone: nil)
+    }
 }
 
 private struct PreviousSettings: Decodable {
@@ -156,11 +264,16 @@ private func mergeCorners(top: (TapAction, TapAction), right: (TapAction, TapAct
 }
 
 private enum SettingsStoreError: LocalizedError {
-    case invalidRecord, invalidValues
+    case invalidRecord, invalidValues, globalSwitchOnly, profileNotFound, lastProfile, invalidName, duplicateName
     var errorDescription: String? {
         switch self {
-        case .invalidRecord: "The saved settings are invalid."
+        case .invalidRecord: "The saved profiles are invalid."
         case .invalidValues: "Edge width must be 3% to 15% and sensitivity must be 0.25x to 3x."
+        case .globalSwitchOnly: "Assign Next Profile with the global profile switch point."
+        case .profileNotFound: "The selected profile no longer exists."
+        case .lastProfile: "Keep at least one profile."
+        case .invalidName: "Profile names must contain 1 to 40 characters."
+        case .duplicateName: "A profile with this name already exists."
         }
     }
 }

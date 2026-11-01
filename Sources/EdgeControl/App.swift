@@ -41,6 +41,7 @@ enum EdgeControlMain {
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             app.appearance = NSAppearance(named: appearance)
             try window.renderPreview(to: directory.appendingPathComponent("settings-\(name).png"), appearance: appearance)
+            try hud.renderPreview(to: directory.appendingPathComponent("profile-\(name).png"), appearance: appearance, profileName: "Everyday")
             for action in [EdgeAction.volume, .brightness, .tracks, .seek] {
                 try hud.renderPreview(to: directory.appendingPathComponent("\(action.rawValue)-\(name).png"),
                                       action: action, appearance: appearance)
@@ -75,6 +76,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private var isPaused = false
     private var errorMessage: String?
     private var hapticError: String?
+    private var lastProfileID: UUID?
     private var suspensions: Set<String> = []
     private var acceptedAfter = Double.infinity
     private var lastFrameAt: Double?
@@ -88,14 +90,16 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             onTogglePause: { [weak self] in self?.togglePause() },
             onQuit: { NSApplication.shared.terminate(nil) },
             onRequestPermission: { [weak self] in self?.requestPermission() },
-            onOpenSettings: { [weak self] in self?.openSettings() }
+            onOpenSettings: { [weak self] in self?.openSettings() },
+            onSelectProfile: { [weak self] id in self?.selectProfile(id) }
         )
         input.onFrame = { [weak self] frame in self?.handle(frame) }
         input.onError = { [weak self] message in self?.fail(message) }
         cursor.onError = { [weak self] message in self?.fail(message) }
         audio.onChange = { [weak self] in self?.outputChanged(.volume) }
         brightness.onChange = { [weak self] in self?.outputChanged(.brightness) }
-        settings.onChange = { [weak self] _ in self?.startInput() }
+        lastProfileID = settings.activeProfileID
+        settings.onChange = { [weak self] _ in self?.settingsChanged() }
         observeSession()
         let timer = Timer(timeInterval: 0.05, target: self, selector: #selector(checkInput), userInfo: nil, repeats: true)
         RunLoop.main.add(timer, forMode: .common)
@@ -121,8 +125,8 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     }
 
     private func startInput() {
-        stopInput()
-        guard !isPaused, suspensions.isEmpty else { updateMenu(); return }
+        resetInput()
+        guard !isPaused, suspensions.isEmpty else { cursor.stop(); updateMenu(); return }
         do {
             guard CursorCapture.hasPermission else { fail("Accessibility permission is required"); return }
             try cursor.start()
@@ -138,14 +142,14 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         } catch { fail(error.localizedDescription) }
     }
 
-    private func stopInput() {
+    private func resetInput() {
         acceptedAfter = .infinity
         gesture.reset()
         taps.reset()
         level.reset()
         mediaMotion.reset()
         haptics.reset()
-        cursor.stop()
+        cursor.releaseAll()
         do { try haptics.stop() }
         catch { hapticError = "Haptics: \(error.localizedDescription)" }
         input.stop()
@@ -156,6 +160,24 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         lastFrameAt = nil
     }
 
+    private func stopInput() {
+        resetInput()
+        cursor.stop()
+    }
+
+    private func settingsChanged() {
+        let switched = lastProfileID != settings.activeProfileID
+        lastProfileID = settings.activeProfileID
+        startInput()
+        settingsWindow?.refresh()
+        if switched { hud.showProfile(settings.activeProfileName) }
+    }
+
+    private func selectProfile(_ id: UUID) {
+        do { try settings.selectProfile(id: id) }
+        catch { fail(error.localizedDescription) }
+    }
+
     private func handle(_ frame: TrackpadFrame) {
         guard !isPaused, suspensions.isEmpty, input.isRunning, frame.timestamp >= acceptedAfter else { return }
         let now = ProcessInfo.processInfo.systemUptime
@@ -164,12 +186,20 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             return
         }
         lastFrameAt = now
-        let update = gesture.process(frame, settings: settings.settings)
-        let tap = taps.process(frame, settings: settings.settings, sliding: update.isActive)
+        let update = gesture.process(frame, settings: settings.gestureSettings)
+        let tap = taps.process(frame, settings: settings.gestureSettings, sliding: update.isActive)
         clickSuppressionUntil = tap.suppressionUntil
         cursor.setClickSuppression(tap.suppressClicks && (tap.suppressionUntil.map { $0 > now } ?? false))
         do {
-            if let command = tap.command { try perform(command.action) }
+            if let command = tap.command {
+                try perform(command.action)
+                if command.action == .nextProfile {
+                    // Profile changes reset recognition, but the native tap-to-click tail is still reserved.
+                    clickSuppressionUntil = tap.suppressionUntil
+                    cursor.setClickSuppression(tap.suppressionUntil.map { $0 > ProcessInfo.processInfo.systemUptime } ?? false)
+                    return
+                }
+            }
             switch update {
             case .inactive:
                 cursor.release()
@@ -252,7 +282,9 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             hud.showSymbol(action.symbol, accessibilityLabel: "Diagnostic: \(action.title)")
             return
         }
-        if action == .mute {
+        if action == .nextProfile {
+            try settings.nextProfile()
+        } else if action == .mute {
             try audio.refresh()
             let muted = try audio.toggleMute()
             controlErrors[.volume] = nil
@@ -321,6 +353,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         let feedbackWarning = settings.settings.hapticsEnabled ? hapticError : nil
         let status = errorMessage ?? (!suspensions.isEmpty ? "Session suspended" :
             (isPaused ? "Paused" : (diagnostic ? "Diagnostic: outputs unchanged" : (warning ?? feedbackWarning ?? "Ready"))))
+        menu?.updateProfiles(settings.profiles, activeID: settings.activeProfileID)
         menu?.update(status: status, isPaused: isPaused, needsPermission: !CursorCapture.hasPermission)
     }
 

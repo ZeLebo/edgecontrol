@@ -2,6 +2,13 @@
 
 Release dates are shown in UTC. Download app archives and SHA256 checksums from the linked releases.
 
+## [2.0.0](https://github.com/ZeLebo/edgecontrol/releases/tag/v2.0) (2026-11-01)
+
+- Add named profiles with create, duplicate, rename, delete, and manual selection in Settings and the menu bar.
+- Add a user-selectable global double-tap point for cycling profiles, preserving the point's per-profile action underneath.
+- Show the active profile in the menu and a short HUD. Preserve current system levels when switching.
+- Import existing settings into Everyday and provide a second Media preset.
+
 ## [1.9.0](https://github.com/ZeLebo/edgecontrol/releases/tag/v1.9) (2026-11-01)
 
 - Use one device-specific haptic path for volume, brightness, media, and double-tap actions.

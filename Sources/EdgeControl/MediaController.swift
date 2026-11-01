@@ -13,7 +13,7 @@ struct MediaRequest: Equatable {
         case .previousTrack: command = 5; interval = nil
         case .seekForward: command = 17; interval = 10
         case .seekBackward: command = 18; interval = 10
-        case .none, .mute: throw MediaControlError("This action is not a media command")
+        case .none, .mute, .nextProfile: throw MediaControlError("This action is not a media command")
         }
     }
 }

@@ -10,17 +10,24 @@ final class StatusMenu: NSObject {
     private let onQuit: () -> Void
     private let onRequestPermission: () -> Void
     private let onOpenSettings: () -> Void
+    private let onSelectProfile: (UUID) -> Void
+    private let profileItem = NSMenuItem(title: "Profile", action: nil, keyEquivalent: "")
+    private let profilesMenu = NSMenu()
+    private var shownProfiles: [ControlProfile] = []
+    private var shownProfileID: UUID?
 
     init(
         onTogglePause: @escaping () -> Void,
         onQuit: @escaping () -> Void,
         onRequestPermission: @escaping () -> Void,
-        onOpenSettings: @escaping () -> Void
+        onOpenSettings: @escaping () -> Void,
+        onSelectProfile: @escaping (UUID) -> Void
     ) {
         self.onTogglePause = onTogglePause
         self.onQuit = onQuit
         self.onRequestPermission = onRequestPermission
         self.onOpenSettings = onOpenSettings
+        self.onSelectProfile = onSelectProfile
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         super.init()
 
@@ -53,6 +60,8 @@ final class StatusMenu: NSObject {
         permissionItem.isHidden = true
         menu.addItem(permissionItem)
         menu.addItem(.separator())
+        profileItem.submenu = profilesMenu
+        menu.addItem(profileItem)
         pauseItem.target = self
         pauseItem.action = #selector(togglePause)
         menu.addItem(pauseItem)
@@ -70,6 +79,26 @@ final class StatusMenu: NSObject {
         pauseItem.title = isPaused ? "Resume Gestures" : "Pause Gestures"
         permissionItem.isHidden = !needsPermission
         statusItem.button?.toolTip = "EdgeControl: \(status)"
+    }
+
+    func updateProfiles(_ profiles: [ControlProfile], activeID: UUID) {
+        guard profiles != shownProfiles || activeID != shownProfileID else { return }
+        shownProfiles = profiles
+        shownProfileID = activeID
+        profileItem.title = "Profile: \(profiles.first { $0.id == activeID }?.name ?? "")"
+        profilesMenu.removeAllItems()
+        for profile in profiles {
+            let item = NSMenuItem(title: profile.name, action: #selector(selectProfile(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = profile.id.uuidString
+            item.state = profile.id == activeID ? .on : .off
+            profilesMenu.addItem(item)
+        }
+    }
+
+    @objc private func selectProfile(_ sender: NSMenuItem) {
+        guard let value = sender.representedObject as? String, let id = UUID(uuidString: value) else { return }
+        onSelectProfile(id)
     }
 
     func remove() {

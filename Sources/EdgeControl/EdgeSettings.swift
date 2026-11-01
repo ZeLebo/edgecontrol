@@ -71,7 +71,8 @@ enum TapZone: String, Codable, CaseIterable, Sendable {
 }
 
 enum TapAction: String, Codable, CaseIterable, Sendable {
-    case none, mute, playPause, previousTrack, nextTrack, seekBackward, seekForward
+    static var configurableCases: [Self] { allCases.filter { $0 != .nextProfile } }
+    case none, mute, playPause, previousTrack, nextTrack, seekBackward, seekForward, nextProfile
     var title: String {
         switch self {
         case .none: "None"
@@ -81,6 +82,7 @@ enum TapAction: String, Codable, CaseIterable, Sendable {
         case .nextTrack: "Next Track"
         case .seekBackward: "Back 10 Seconds"
         case .seekForward: "Forward 10 Seconds"
+        case .nextProfile: "Next Profile"
         }
     }
     var symbol: String {
@@ -92,6 +94,7 @@ enum TapAction: String, Codable, CaseIterable, Sendable {
         case .nextTrack: "forward.end.fill"
         case .seekBackward: "gobackward.10"
         case .seekForward: "goforward.10"
+        case .nextProfile: "rectangle.stack"
         }
     }
 }
@@ -179,4 +182,34 @@ struct EdgeSettings: Codable, Equatable, Sendable {
         set { tapActions[zone] = newValue }
     }
 
+}
+
+struct ControlProfile: Codable, Equatable, Identifiable, Sendable {
+    let id: UUID
+    var name: String
+    var settings: EdgeSettings
+
+    init(id: UUID = UUID(), name: String, settings: EdgeSettings = .defaults) {
+        self.id = id
+        self.name = name
+        self.settings = settings
+    }
+}
+
+struct ProfileDocument: Codable, Equatable, Sendable {
+    var profiles: [ControlProfile]
+    var activeProfileID: UUID
+    var profileSwitchZone: TapZone?
+
+    var isValid: Bool {
+        !profiles.isEmpty && Set(profiles.map(\.id)).count == profiles.count &&
+            profiles.contains { $0.id == activeProfileID } &&
+            profiles.enumerated().allSatisfy { index, profile in
+                !profile.name.isEmpty && profile.name.count <= 40 &&
+                    profile.name == profile.name.trimmingCharacters(in: .whitespacesAndNewlines) &&
+                    profiles.prefix(index).allSatisfy { $0.name.caseInsensitiveCompare(profile.name) != .orderedSame } &&
+                    profile.settings.isValid &&
+                    TapZone.allCases.allSatisfy { profile.settings[$0] != .nextProfile }
+            }
+    }
 }
