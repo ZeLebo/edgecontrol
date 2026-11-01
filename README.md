@@ -14,7 +14,7 @@ In Settings, select any of the four edges and choose its controls:
 - **Relative:** movement adds to or subtracts from the current system level. Touching at a different position does not cause a jump. Sensitivity is separate for each edge, from 0.25x to 3x.
 - **Track Navigation / Seek:** a slide sends Previous or Next Track, or skips backward or forward by 10 seconds. Each slide sends one command; lift and slide again to repeat. Right or up moves forward.
 - **Double tap:** eight points cover the four corners and the middle of each edge. A corner has one action shared by its two edges. Select a point on the diagram or in the point picker, then choose None, Mute / Unmute, Play / Pause, Previous Track, Next Track, or a 10-second skip. Purple points mark configured actions. The two bottom corners toggle mute by default.
-- **Feedback:** a compact icon and bar show level changes. Haptic feedback can be turned off. Edge width is adjustable from 3% to 15%.
+- **Feedback:** a compact icon and bar show level changes. Volume and brightness use weak haptics at 0% to 33%, medium at 34% to 66%, and strong at 67% to 100%. Media and double-tap actions use a medium pulse. Haptic feedback can be turned off. Edge width is adjustable from 3% to 15%.
 
 Settings are saved automatically. Existing assignments are imported once from earlier formats. If two old actions share a corner, a configured horizontal-edge action takes priority; otherwise the vertical-edge action is kept. Center points start unassigned.
 
@@ -40,9 +40,9 @@ Diagnostic mode still uses the input and pointer capture permissions. Quit the r
 
 ## Compatibility
 
-Volume requires an audio output with writable system volume. Brightness controls the built-in display. External trackpads and external display brightness are outside the current scope. Media commands depend on the active player, and seek support varies by player. macOS may suppress haptic feedback.
+Volume requires an audio output with writable system volume. Brightness controls the built-in display. External trackpads and external display brightness are outside the current scope. Media commands depend on the active player, and seek support varies by player. Haptic feedback requires a supported actuator on the selected built-in trackpad. Transport errors appear in the menu; level and media controls remain available.
 
-Background touch input, display brightness, and media commands use private Apple frameworks. A macOS update can change their behavior. No driver, entitled host process, or background service is installed.
+Background touch input, device-specific haptics, display brightness, and media commands use private Apple frameworks. A macOS update can change their behavior. No driver, entitled host process, or background service is installed.
 
 ## Source and releases
 

@@ -74,6 +74,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private let diagnostic: Bool
     private var isPaused = false
     private var errorMessage: String?
+    private var hapticError: String?
     private var suspensions: Set<String> = []
     private var acceptedAfter = Double.infinity
     private var lastFrameAt: Double?
@@ -127,6 +128,11 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             try cursor.start()
             acceptedAfter = ProcessInfo.processInfo.systemUptime
             try input.start()
+            hapticError = nil
+            if !diagnostic, settings.settings.hapticsEnabled {
+                do { try haptics.start(deviceID: input.deviceIdentifier()) }
+                catch { hapticError = "Haptics: \(error.localizedDescription)" }
+            }
             errorMessage = nil
             updateMenu()
         } catch { fail(error.localizedDescription) }
@@ -140,6 +146,8 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         mediaMotion.reset()
         haptics.reset()
         cursor.stop()
+        do { try haptics.stop() }
+        catch { hapticError = "Haptics: \(error.localizedDescription)" }
         input.stop()
         hud.hide()
         activeAction = nil
@@ -231,7 +239,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             controlErrors[action] = nil
             updateMenu()
             hud.show(action: action, percent: percent)
-            haptics.levelChanged(to: percent, enabled: settings.settings.hapticsEnabled)
+            emitHaptic { try haptics.levelChanged(to: percent, enabled: settings.settings.hapticsEnabled) }
         } else if let command = try mediaMotion.consume(change, action: action) {
             try perform(command)
         }
@@ -254,7 +262,14 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             try media.perform(action)
             hud.showSymbol(action.symbol, accessibilityLabel: action.title)
         }
-        haptics.actionPerformed(enabled: settings.settings.hapticsEnabled)
+        emitHaptic { try haptics.actionPerformed(enabled: settings.settings.hapticsEnabled) }
+        updateMenu()
+    }
+
+    private func emitHaptic(_ request: () throws -> Void) {
+        guard haptics.isReady else { return }
+        do { try request(); hapticError = nil }
+        catch { hapticError = "Haptics: \(error.localizedDescription)" }
         updateMenu()
     }
 
@@ -303,8 +318,9 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
                 TrackpadEdge.allCases.contains { settings.settings[$0].action == action }
         }
         let warning = unavailable.flatMap { action in controlErrors[action].map { "\(action.title): \($0)" } }
+        let feedbackWarning = settings.settings.hapticsEnabled ? hapticError : nil
         let status = errorMessage ?? (!suspensions.isEmpty ? "Session suspended" :
-            (isPaused ? "Paused" : (diagnostic ? "Diagnostic: outputs unchanged" : (warning ?? "Ready"))))
+            (isPaused ? "Paused" : (diagnostic ? "Diagnostic: outputs unchanged" : (warning ?? feedbackWarning ?? "Ready"))))
         menu?.update(status: status, isPaused: isPaused, needsPermission: !CursorCapture.hasPermission)
     }
 

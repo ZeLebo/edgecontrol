@@ -53,6 +53,13 @@ final class TrackpadInput {
         }
     }
 
+    func deviceIdentifier() throws -> UInt64 {
+        guard isRunning, let device, let api else {
+            throw TrackpadInputError.unavailable("Trackpad input is not running")
+        }
+        return try api.identifier(for: device)
+    }
+
     func stop() {
         generation &+= 1
         isRunning = false
@@ -195,6 +202,20 @@ private final class MultitouchAPI {
             dlclose(library)
             throw error
         }
+    }
+
+    func identifier(for device: UnsafeMutableRawPointer) throws -> UInt64 {
+        typealias GetID = @convention(c) (UnsafeMutableRawPointer, UnsafeMutablePointer<UInt64>) -> Int32
+        guard let symbol = dlsym(library, "MTDeviceGetDeviceID") else {
+            throw TrackpadInputError.unavailable("Trackpad device identifier is unavailable")
+        }
+        let getID = unsafeBitCast(symbol, to: GetID.self)
+        var identifier: UInt64 = 0
+        let status = getID(device, &identifier)
+        guard status == 0, identifier != 0 else {
+            throw TrackpadInputError.unavailable("Could not identify the active trackpad (\(status))")
+        }
+        return identifier
     }
 
     // Keep the framework mapped until process exit: unregister/stop does not document
