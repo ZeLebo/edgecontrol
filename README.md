@@ -43,6 +43,10 @@ For volume, display brightness, and keyboard backlight, choose a mode separately
 
 **Track Navigation** sends Previous / Next Track. **Seek** skips backward or forward by 10 seconds. Right or up moves forward; left or down moves backward. Each slide sends one command. Lift and slide again to repeat. Sensitivity also applies to media slides.
 
+### Precision with Shift
+
+Hold Shift while sliding for movement at one fifth of the normal sensitivity. For an Absolute level action, Shift temporarily adjusts relative to the current level. Once engaged, relative adjustment lasts until the finger lifts, so releasing Shift restores normal speed without jumping back to the absolute position. The next gesture uses the configured mode again.
+
 ### Double taps
 
 There are eight points: four shared corners and the middle of each edge. A corner has one action shared by its two edges.

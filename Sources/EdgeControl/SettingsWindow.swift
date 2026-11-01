@@ -118,7 +118,7 @@ final class SettingsWindow: NSObject {
         sensitivitySlider.target = self
         sensitivitySlider.action = #selector(changeSensitivity)
         sensitivitySlider.setAccessibilityLabel("Relative sensitivity")
-        sensitivitySlider.toolTip = "Used by relative adjustment and media gestures."
+        sensitivitySlider.toolTip = "Used by relative adjustment and media gestures. Hold Shift for precise movement."
         content.addSubview(sensitivitySlider)
         sensitivityValue.frame = NSRect(x: 648, y: 287, width: 68, height: 22)
         sensitivityValue.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)

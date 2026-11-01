@@ -2,6 +2,11 @@
 
 Release dates are shown in UTC. Download app archives and SHA256 checksums from the linked releases.
 
+## [2.2.0](https://github.com/ZeLebo/edgecontrol/releases/tag/v2.2) (2026-11-01)
+
+- Hold Shift for five times finer movement, including relative levels and media gestures.
+- Temporarily adjust Absolute levels relatively while using precision; keep the current gesture relative until lift to avoid jumps when Shift is released.
+
 ## [2.1.0](https://github.com/ZeLebo/edgecontrol/releases/tag/v2.1) (2026-11-01)
 
 - Add built-in keyboard backlight control with Absolute / Relative adjustment, sensitivity, and haptic feedback.

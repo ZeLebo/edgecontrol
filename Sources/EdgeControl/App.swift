@@ -189,7 +189,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             return
         }
         lastFrameAt = now
-        let update = gesture.process(frame, settings: settings.gestureSettings)
+        let update = gesture.process(frame, settings: settings.gestureSettings, precision: CGEventSource.flagsState(.combinedSessionState).contains(.maskShift))
         let tap = taps.process(frame, settings: settings.gestureSettings, sliding: update.isActive)
         clickSuppressionUntil = tap.suppressionUntil
         cursor.setClickSuppression(tap.suppressClicks && (tap.suppressionUntil.map { $0 > now } ?? false))
@@ -213,8 +213,12 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
                     level.reset()
                     mediaMotion.reset()
                 }
-            case let .active(edge, action, change):
-                if activeAction == nil { try begin(action, configuration: settings.settings[edge]) }
+            case let .active(_, action, change):
+                if activeAction == nil {
+                    let relative: Bool
+                    if case .relative = change { relative = true } else { relative = false }
+                    try begin(action, relative: relative)
+                }
                 if let change { try apply(change, action: action) }
             }
         } catch { fail(error.localizedDescription); return }
@@ -227,7 +231,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func begin(_ action: EdgeAction, configuration: EdgeConfiguration) throws {
+    private func begin(_ action: EdgeAction, relative: Bool) throws {
         level.reset()
         mediaMotion.reset()
         haptics.reset()
@@ -240,7 +244,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             case .tracks, .seek: break
             case .disabled: throw ApplicationControlError("This edge is disabled")
             }
-            if action.isLevel, configuration.effectiveMode == .relative {
+            if action.isLevel, relative {
                 let initial: Int
                 switch action {
                 case .volume: initial = try audio.readVolumePercent()

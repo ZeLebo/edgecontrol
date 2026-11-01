@@ -10,8 +10,9 @@ struct EdgeGesture {
     private var lastTimestamp: Double?
     private var lastSettings: EdgeSettings?
     private var lastPercent: Int?
+    private var relativeOverride = false
 
-    mutating func process(_ frame: TrackpadFrame, settings: EdgeSettings) -> GestureUpdate {
+    mutating func process(_ frame: TrackpadFrame, settings: EdgeSettings, precision: Bool = false) -> GestureUpdate {
         guard settings.isValid, frame.timestamp.isFinite, frame.timestamp >= 0,
               lastTimestamp.map({ frame.timestamp > $0 }) ?? true else { return cancel() }
         lastTimestamp = frame.timestamp
@@ -51,14 +52,14 @@ struct EdgeGesture {
             }
             let configuration = settings[edge]
             return update(contact, edge: edge, configuration: configuration,
-                          previous: coordinate(of: start, along: edge))
+                          previous: coordinate(of: start, along: edge), precision: precision)
 
         case let .active(id, edge, configuration, previous):
             guard frame.contacts.count == 1, let contact = frame.contacts.first,
                   contact.id == id, contains(contact, in: edge, width: settings.stripWidth) else {
                 return finish(frame)
             }
-            return update(contact, edge: edge, configuration: configuration, previous: previous)
+            return update(contact, edge: edge, configuration: configuration, previous: previous, precision: precision)
         }
     }
 
@@ -102,18 +103,21 @@ struct EdgeGesture {
     }
 
     private mutating func update(
-        _ contact: TrackpadContact, edge: TrackpadEdge, configuration: EdgeConfiguration, previous: Double
+        _ contact: TrackpadContact, edge: TrackpadEdge, configuration: EdgeConfiguration, previous: Double, precision: Bool
     ) -> GestureUpdate {
         let coordinate = coordinate(of: contact, along: edge)
         state = .active(id: contact.id, edge: edge, configuration: configuration, coordinate: coordinate)
+        // Keep relative control until lift so releasing Shift cannot jump to the absolute position.
+        if precision && configuration.effectiveMode == .absolute { relativeOverride = true }
+        let mode: AdjustmentMode = relativeOverride ? .relative : configuration.effectiveMode
         let change: LevelChange?
-        switch configuration.effectiveMode {
+        switch mode {
         case .absolute:
             let percent = Int((100 * min(1, max(0, (coordinate - 0.03) / 0.94))).rounded())
             change = percent == lastPercent ? nil : .absolute(percent)
             lastPercent = percent
         case .relative:
-            let delta = (coordinate - previous) * 100 * configuration.sensitivity
+            let delta = (coordinate - previous) * 100 * configuration.sensitivity * (precision ? 0.2 : 1)
             change = delta == 0 ? nil : .relative(delta)
         }
         return .active(edge: edge, action: configuration.action, change: change)
@@ -122,6 +126,7 @@ struct EdgeGesture {
     private mutating func cancel() -> GestureUpdate {
         state = .waitingForLift
         lastPercent = nil
+        relativeOverride = false
         return .inactive
     }
 
