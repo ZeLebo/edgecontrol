@@ -5,7 +5,7 @@ import re
 import subprocess
 import sys
 
-EXACT = {'.gitignore', 'README.md', 'Package.swift', 'Resources/Info.plist',
+EXACT = {'.gitignore', 'README.md', 'CHANGELOG.md', 'Package.swift', 'Resources/Info.plist',
          'Resources/EdgeControlIcon.png', 'scripts/build-app.sh', 'scripts/build-icon.swift',
          'scripts/audit-public-tree.py', 'scripts/release.sh'}
 RULES = {

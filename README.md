@@ -1,26 +1,71 @@
 # EdgeControl
 
-Control volume, display brightness, and media playback from the edges of the built-in trackpad. EdgeControl is a native Swift and AppKit menu bar app with no third-party dependencies.
+Control volume, built-in display brightness, and media playback with one-finger gestures along the edges of your Mac's built-in trackpad. EdgeControl is a native Swift and AppKit menu bar app with no third-party dependencies.
 
-## Use
+[Download the latest release](https://github.com/ZeLebo/edgecontrol/releases/latest) · [Changelog](CHANGELOG.md)
 
-Open the app and grant Accessibility access when prompted. The menu bar icon opens Settings and provides Pause, Resume, and Quit.
+## Install and run
 
-By default, the bottom 5% of the trackpad controls volume and the right 5% controls built-in display brightness. Start moving one finger along an edge to adjust its level. Touching the edge alone does not change the level. The pointer stays still during an active slide. Lifting the finger, leaving the strip, or adding another finger ends the gesture.
+Requires an Apple silicon Mac with a built-in trackpad and macOS 14 or later.
 
-In Settings, select any of the four edges and choose its controls:
+1. Download the `arm64.zip` archive from [Releases](https://github.com/ZeLebo/edgecontrol/releases/latest) and extract it.
+2. Open `EdgeControl.app`. Quit any older running copy before opening an update.
+3. Grant Accessibility access when prompted, then choose **Resume** from the menu bar if needed.
 
-- **Absolute:** position selects the level, with reachable 0% and 100% endpoints.
-- **Relative:** movement adds to or subtracts from the current system level. Touching at a different position does not cause a jump. Sensitivity is separate for each edge, from 0.25x to 3x.
-- **Track Navigation / Seek:** a slide sends Previous or Next Track, or skips backward or forward by 10 seconds. Each slide sends one command; lift and slide again to repeat. Right or up moves forward.
-- **Double tap:** eight points cover the four corners and the middle of each edge. A corner has one action shared by its two edges. Select a point on the diagram or in the point picker, then choose None, Mute / Unmute, Play / Pause, Previous Track, Next Track, or a 10-second skip. Purple points mark configured actions. The two bottom corners toggle mute by default.
-- **Feedback:** a compact icon and bar show level changes. Volume and brightness use weak haptics at 0% to 33%, medium at 34% to 66%, and strong at 67% to 100%. Media and double-tap actions use a medium pulse. Haptic feedback can be turned off. Edge width is adjustable from 3% to 15%.
+The menu bar icon provides **Settings**, **Pause / Resume**, and **Quit**. Release builds are ad hoc signed and are not notarized. If macOS blocks a downloaded copy, you can build the app locally.
 
-Settings are saved automatically. Existing assignments are imported once from earlier formats. If two old actions share a corner, a configured horizontal-edge action takes priority; otherwise the vertical-edge action is kept. Center points start unassigned.
+## Default controls
 
-## Build
+| Location | Gesture | Action |
+| --- | --- | --- |
+| Bottom edge | Slide left or right | Set volume from 0% to 100% |
+| Right edge | Slide down or up | Set built-in display brightness from 0% to 100% |
+| Bottom-left or bottom-right corner | Double tap | Mute / unmute |
 
-Requires an Apple silicon Mac with a built-in trackpad, macOS 14 or later, and a selected Xcode toolchain with Swift 6.2 or later.
+The active strip starts at 5% of the trackpad's width or height. Touching an edge alone does not change a level. Start sliding one finger along the strip to adjust it; the pointer stays still while the slide is active. Lifting the finger, leaving the strip, or adding another finger ends the gesture.
+
+## Customize gestures
+
+Open **Settings** and select any of the four edges. Assign **Volume**, **Brightness**, **Track Navigation**, **Seek**, or **Disabled**. Edge width is adjustable from 3% to 15%.
+
+For volume and brightness, choose a mode separately for each edge:
+
+- **Absolute:** the finger's position selects the level, with reachable 0% and 100% endpoints.
+- **Relative:** movement adjusts the current system level without jumping to the initial touch position. Sensitivity ranges from 0.25x to 3x. At 1x, moving across 10% of the trackpad adds or subtracts 10 percentage points.
+
+**Track Navigation** sends Previous / Next Track. **Seek** skips backward or forward by 10 seconds. Right or up moves forward; left or down moves backward. Each slide sends one command. Lift and slide again to repeat. Sensitivity also applies to media slides.
+
+### Double taps
+
+There are eight points: four shared corners and the middle of each edge. A corner has one action shared by its two edges.
+
+Click a point on the diagram or select it in the point picker. Choose **None**, **Mute / Unmute**, **Play / Pause**, **Previous Track**, **Next Track**, or a backward / forward 10-second skip. Purple points have an action assigned. Center points start unassigned.
+
+### Visual and haptic feedback
+
+A compact icon and bar show level changes without visible text or percentages. Media and mute actions show a short symbol indicator.
+
+Haptic strength follows the current volume or brightness level:
+
+| Level | Feedback |
+| --- | --- |
+| 0% to 33% | Weak |
+| 34% to 66% | Medium |
+| 67% to 100% | Strong |
+
+Media and double-tap actions use a medium pulse. Turn **Haptic Feedback** off in Settings to disable it.
+
+Settings save automatically. Earlier assignments are imported on update. If two old actions share a corner, a configured horizontal-edge action takes priority; otherwise the vertical-edge action is kept.
+
+## Compatibility
+
+Volume requires an audio output with writable system volume. Brightness controls the built-in display. External trackpads and external display brightness are outside the current scope. Media commands and seeking depend on the active player. Haptic feedback requires a supported actuator on the selected built-in trackpad; transport errors appear in the menu while the controls remain available.
+
+Background touch input, device-specific haptics, display brightness, and media commands use private Apple frameworks. A macOS update can change their behavior. No driver or background service is installed.
+
+## Build from source
+
+Select an Xcode toolchain with Swift 6.2 or later, then run:
 
 ```sh
 xcrun swift test
@@ -28,26 +73,24 @@ xcrun swift test
 open build/EdgeControl.app
 ```
 
-The script creates an ad hoc signed app. Release downloads are also ad hoc signed and are not notarized; building locally is an option if macOS blocks a download.
+The build script creates an ad hoc signed app. Tests use synthetic input and recording transports; they do not change system outputs or generate physical haptics.
 
-To inspect trackpad coordinates without changing levels or sending media commands:
+To inspect contacts and gesture targets without changing levels or sending commands, quit the regular instance and run:
 
 ```sh
 build/EdgeControl.app/Contents/MacOS/EdgeControl --diagnose
 ```
 
-Diagnostic mode still uses the input and pointer capture permissions. Quit the regular instance before running another copy.
+Diagnostic mode still requires Accessibility for pointer capture.
 
-## Compatibility
+## Source checks
 
-Volume requires an audio output with writable system volume. Brightness controls the built-in display. External trackpads and external display brightness are outside the current scope. Media commands depend on the active player, and seek support varies by player. Haptic feedback requires a supported actuator on the selected built-in trackpad. Transport errors appear in the menu; level and media controls remain available.
+The public tree contains application source, tests, source assets, build tools, this README, and the changelog. Local notes, agent files, preferences, caches, and build outputs stay outside Git.
 
-Background touch input, device-specific haptics, display brightness, and media commands use private Apple frameworks. A macOS update can change their behavior. No driver, entitled host process, or background service is installed.
+```sh
+python3 scripts/audit-public-tree.py
+python3 scripts/audit-public-tree.py --head
+python3 scripts/audit-public-tree.py --history
+```
 
-## Source and releases
-
-The repository includes application source, tests, the source icon, and build tools. Local notes, agent files, preferences, caches, and build outputs are excluded by a source allowlist.
-
-Before a commit, run `python3 scripts/audit-public-tree.py` to inspect the Git index. Use `--head` for the latest commit or `--history` for all reachable commits and tags. The audit rejects files outside the allowlist, machine paths, email addresses in source, common access tokens, private keys, and Git identities without a GitHub noreply address.
-
-The history starts with a README-only commit. Functional stages have their own tags, starting with volume control in `v1.0`. Commit and tag dates record when those stages were committed; they are not backdated.
+These inspect the index, the latest commit, and all reachable commits and tag identities respectively. The audit rejects files outside the public allowlist, machine paths, email addresses in source, common access tokens, and private keys. Commit and tag identities must use a GitHub noreply address.

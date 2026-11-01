@@ -3,6 +3,7 @@
 !/.gitignore
 !/Package.swift
 !/README.md
+!/CHANGELOG.md
 !/Sources/
 /Sources/*
 !/Sources/EdgeControl/
