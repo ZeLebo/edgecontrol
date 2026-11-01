@@ -410,6 +410,7 @@ private final class TrackpadDiagramView: NSView {
         switch action {
         case .volume: .systemBlue
         case .brightness: .systemOrange
+        case .keyboardBrightness: .systemTeal
         case .tracks, .seek: .systemPurple
         case .disabled: .quaternaryLabelColor
         }

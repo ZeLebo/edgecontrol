@@ -42,7 +42,7 @@ enum EdgeControlMain {
             app.appearance = NSAppearance(named: appearance)
             try window.renderPreview(to: directory.appendingPathComponent("settings-\(name).png"), appearance: appearance)
             try hud.renderPreview(to: directory.appendingPathComponent("profile-\(name).png"), appearance: appearance, profileName: "Everyday")
-            for action in [EdgeAction.volume, .brightness, .tracks, .seek] {
+            for action in [EdgeAction.volume, .brightness, .keyboardBrightness, .tracks, .seek] {
                 try hud.renderPreview(to: directory.appendingPathComponent("\(action.rawValue)-\(name).png"),
                                       action: action, appearance: appearance)
             }
@@ -58,6 +58,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private let cursor = CursorCapture()
     private let audio = AudioOutput()
     private let brightness = BrightnessOutput()
+    private let keyboard = KeyboardBacklight()
     private let media = MediaController()
     private let settings = SettingsStore()
     private let hud = LevelHUD()
@@ -108,6 +109,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             // Readiness errors remain specific to an action; the other action can still run.
             do { try audio.start() } catch { controlErrors[.volume] = error.localizedDescription }
             do { try brightness.start() } catch { controlErrors[.brightness] = error.localizedDescription }
+            do { try keyboard.start() } catch { controlErrors[.keyboardBrightness] = error.localizedDescription }
         }
         startInput()
     }
@@ -118,6 +120,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         stopInput()
         audio.stop()
         brightness.stop()
+        keyboard.stop()
         settingsWindow?.close()
         NSWorkspace.shared.notificationCenter.removeObserver(self)
         DistributedNotificationCenter.default().removeObserver(self)
@@ -233,11 +236,18 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             switch action {
             case .volume: try audio.refresh()
             case .brightness: try brightness.refresh()
+            case .keyboardBrightness: try keyboard.refresh()
             case .tracks, .seek: break
             case .disabled: throw ApplicationControlError("This edge is disabled")
             }
             if action.isLevel, configuration.effectiveMode == .relative {
-                let initial = try action == .volume ? audio.readVolumePercent() : brightness.readBrightnessPercent()
+                let initial: Int
+                switch action {
+                case .volume: initial = try audio.readVolumePercent()
+                case .brightness: initial = try brightness.readBrightnessPercent()
+                case .keyboardBrightness: initial = try keyboard.readBrightnessPercent()
+                default: throw ApplicationControlError("This action does not control a level")
+                }
                 try level.start(at: initial)
             }
         }
@@ -263,6 +273,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             switch action {
             case .volume: try audio.setVolume(percent: percent)
             case .brightness: try brightness.setBrightness(percent: percent)
+            case .keyboardBrightness: try keyboard.setBrightness(percent: percent)
             default: throw ApplicationControlError("This action does not control a level")
             }
             lastAppliedLevel = percent
@@ -284,6 +295,11 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         }
         if action == .nextProfile {
             try settings.nextProfile()
+        } else if action == .toggleKeyboardBacklight {
+            try keyboard.refresh()
+            let isOn = try keyboard.toggle()
+            controlErrors[.keyboardBrightness] = nil
+            hud.showSymbol(isOn ? "keyboard.fill" : "keyboard", accessibilityLabel: isOn ? "Keyboard backlight on" : "Keyboard backlight off")
         } else if action == .mute {
             try audio.refresh()
             let muted = try audio.toggleMute()

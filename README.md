@@ -34,9 +34,9 @@ Existing settings become the Everyday profile on update. The Media preset adds t
 
 ## Customize gestures
 
-Open **Settings** and select any of the four edges. Assign **Volume**, **Brightness**, **Track Navigation**, **Seek**, or **Disabled**. Edge width is adjustable from 3% to 15%.
+Open **Settings** and select any of the four edges. Assign **Volume**, **Brightness**, **Keyboard Backlight**, **Track Navigation**, **Seek**, or **Disabled**. Edge width is adjustable from 3% to 15%.
 
-For volume and brightness, choose a mode separately for each edge:
+For volume, display brightness, and keyboard backlight, choose a mode separately for each edge:
 
 - **Absolute:** the finger's position selects the level, with reachable 0% and 100% endpoints.
 - **Relative:** movement adjusts the current system level without jumping to the initial touch position. Sensitivity ranges from 0.25x to 3x. At 1x, moving across 10% of the trackpad adds or subtracts 10 percentage points.
@@ -49,11 +49,13 @@ There are eight points: four shared corners and the middle of each edge. A corne
 
 Click a point on the diagram or select it in the point picker. Choose **None**, **Mute / Unmute**, **Play / Pause**, **Previous Track**, **Next Track**, or a backward / forward 10-second skip. Purple points have an action assigned. Center points start unassigned.
 
+Keyboard Backlight also provides an On / Off tap action. It restores the last known nonzero level; if no previous level is known, it starts at 50%. System automatic brightness and idle dimming keep their existing settings.
+
 ### Visual and haptic feedback
 
 A compact icon and bar show level changes without visible text or percentages. Media and mute actions show a short symbol indicator.
 
-Haptic strength follows the current volume or brightness level:
+Haptic strength follows the current volume, display brightness, or keyboard backlight level:
 
 | Level | Feedback |
 | --- | --- |

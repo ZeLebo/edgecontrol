@@ -2,6 +2,12 @@
 
 Release dates are shown in UTC. Download app archives and SHA256 checksums from the linked releases.
 
+## [2.1.0](https://github.com/ZeLebo/edgecontrol/releases/tag/v2.1) (2026-11-01)
+
+- Add built-in keyboard backlight control with Absolute / Relative adjustment, sensitivity, and haptic feedback.
+- Add On / Off double tap with restoration of the last known nonzero level.
+- Preserve system automatic brightness and idle dimming settings; report unsupported keyboards or rejected writes.
+
 ## [2.0.0](https://github.com/ZeLebo/edgecontrol/releases/tag/v2.0) (2026-11-01)
 
 - Add named profiles with create, duplicate, rename, delete, and manual selection in Settings and the menu bar.

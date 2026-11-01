@@ -15,12 +15,13 @@ enum TrackpadEdge: String, Codable, CaseIterable, Sendable {
 }
 
 enum EdgeAction: String, Codable, CaseIterable, Sendable {
-    case disabled, volume, brightness, tracks, seek
+    case disabled, volume, brightness, keyboardBrightness, tracks, seek
     var title: String {
         switch self {
         case .disabled: "Disabled"
         case .volume: "Volume"
         case .brightness: "Brightness"
+        case .keyboardBrightness: "Keyboard Backlight"
         case .tracks: "Track Navigation"
         case .seek: "Seek"
         }
@@ -30,11 +31,12 @@ enum EdgeAction: String, Codable, CaseIterable, Sendable {
         case .disabled: "minus"
         case .volume: "speaker.wave.2.fill"
         case .brightness: "sun.max.fill"
+        case .keyboardBrightness: "keyboard.fill"
         case .tracks: "forward.end.fill"
         case .seek: "goforward.10"
         }
     }
-    var isLevel: Bool { self == .volume || self == .brightness }
+    var isLevel: Bool { self == .volume || self == .brightness || self == .keyboardBrightness }
 }
 
 enum AdjustmentMode: String, Codable, CaseIterable, Sendable {
@@ -72,7 +74,7 @@ enum TapZone: String, Codable, CaseIterable, Sendable {
 
 enum TapAction: String, Codable, CaseIterable, Sendable {
     static var configurableCases: [Self] { allCases.filter { $0 != .nextProfile } }
-    case none, mute, playPause, previousTrack, nextTrack, seekBackward, seekForward, nextProfile
+    case none, mute, playPause, previousTrack, nextTrack, seekBackward, seekForward, nextProfile, toggleKeyboardBacklight
     var title: String {
         switch self {
         case .none: "None"
@@ -83,6 +85,7 @@ enum TapAction: String, Codable, CaseIterable, Sendable {
         case .seekBackward: "Back 10 Seconds"
         case .seekForward: "Forward 10 Seconds"
         case .nextProfile: "Next Profile"
+        case .toggleKeyboardBacklight: "Keyboard Backlight On / Off"
         }
     }
     var symbol: String {
@@ -95,6 +98,7 @@ enum TapAction: String, Codable, CaseIterable, Sendable {
         case .seekBackward: "gobackward.10"
         case .seekForward: "goforward.10"
         case .nextProfile: "rectangle.stack"
+        case .toggleKeyboardBacklight: "keyboard.fill"
         }
     }
 }
