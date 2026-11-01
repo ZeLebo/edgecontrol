@@ -15,7 +15,7 @@ enum TrackpadEdge: String, Codable, CaseIterable, Sendable {
 }
 
 enum EdgeAction: String, Codable, CaseIterable, Sendable {
-    case disabled, volume, brightness, keyboardBrightness, tracks, seek
+    case disabled, volume, brightness, keyboardBrightness, tracks, seek, shortcut
     var title: String {
         switch self {
         case .disabled: "Disabled"
@@ -24,6 +24,7 @@ enum EdgeAction: String, Codable, CaseIterable, Sendable {
         case .keyboardBrightness: "Keyboard Backlight"
         case .tracks: "Track Navigation"
         case .seek: "Seek"
+        case .shortcut: "Keyboard Shortcut"
         }
     }
     var symbol: String {
@@ -34,6 +35,7 @@ enum EdgeAction: String, Codable, CaseIterable, Sendable {
         case .keyboardBrightness: "keyboard.fill"
         case .tracks: "forward.end.fill"
         case .seek: "goforward.10"
+        case .shortcut: "command.square"
         }
     }
     var isLevel: Bool { self == .volume || self == .brightness || self == .keyboardBrightness }
@@ -74,7 +76,7 @@ enum TapZone: String, Codable, CaseIterable, Sendable {
 
 enum TapAction: String, Codable, CaseIterable, Sendable {
     static var configurableCases: [Self] { allCases.filter { $0 != .nextProfile } }
-    case none, mute, playPause, previousTrack, nextTrack, seekBackward, seekForward, nextProfile, toggleKeyboardBacklight
+    case none, mute, playPause, previousTrack, nextTrack, seekBackward, seekForward, nextProfile, toggleKeyboardBacklight, shortcut
     var title: String {
         switch self {
         case .none: "None"
@@ -86,6 +88,7 @@ enum TapAction: String, Codable, CaseIterable, Sendable {
         case .seekForward: "Forward 10 Seconds"
         case .nextProfile: "Next Profile"
         case .toggleKeyboardBacklight: "Keyboard Backlight On / Off"
+        case .shortcut: "Keyboard Shortcut"
         }
     }
     var symbol: String {
@@ -99,6 +102,7 @@ enum TapAction: String, Codable, CaseIterable, Sendable {
         case .seekForward: "goforward.10"
         case .nextProfile: "rectangle.stack"
         case .toggleKeyboardBacklight: "keyboard.fill"
+        case .shortcut: "command.square"
         }
     }
 }
@@ -107,8 +111,14 @@ struct EdgeConfiguration: Codable, Equatable, Sendable {
     var action: EdgeAction = .disabled
     var mode: AdjustmentMode = .absolute
     var sensitivity: Double = 1
+    var negativeShortcut: KeyboardShortcut?
+    var positiveShortcut: KeyboardShortcut?
     var effectiveMode: AdjustmentMode { action.isLevel ? mode : .relative }
-    var isValid: Bool { sensitivity.isFinite && (0.25...3).contains(sensitivity) }
+    var isValid: Bool {
+        sensitivity.isFinite && (0.25...3).contains(sensitivity) &&
+            (negativeShortcut?.isValid ?? true) && (positiveShortcut?.isValid ?? true) &&
+            (action != .shortcut || (negativeShortcut != nil && positiveShortcut != nil))
+    }
 }
 
 struct TapAssignments: Codable, Equatable, Sendable {
@@ -157,11 +167,14 @@ struct EdgeSettings: Codable, Equatable, Sendable {
     var stripWidth: Double = 0.05
     var hapticsEnabled = true
     var tapActions = TapAssignments()
+    var tapShortcuts: [String: KeyboardShortcut] = [:]
     static let defaults = EdgeSettings()
     static let allowedStripWidths = 0.03...0.15
     var isValid: Bool {
         stripWidth.isFinite && Self.allowedStripWidths.contains(stripWidth) &&
-            TrackpadEdge.allCases.allSatisfy { self[$0].isValid }
+            TrackpadEdge.allCases.allSatisfy { self[$0].isValid } &&
+            tapShortcuts.allSatisfy { key, value in TapZone(rawValue: key) != nil && value.isValid } &&
+            TapZone.allCases.allSatisfy { self[$0] != .shortcut || tapShortcuts[$0.rawValue] != nil }
     }
     subscript(edge: TrackpadEdge) -> EdgeConfiguration {
         get {
@@ -231,5 +244,21 @@ extension ProfileDocument {
         profileSwitchZone = try values.decodeIfPresent(TapZone.self, forKey: .profileSwitchZone)
         // Earlier v5 releases had profiles before application exclusions were added.
         excludedAppIDs = try values.contains(.excludedAppIDs) ? values.decode([String].self, forKey: .excludedAppIDs) : []
+    }
+}
+
+extension EdgeSettings {
+    private enum CodingKeys: String, CodingKey { case top, right, bottom, left, stripWidth, hapticsEnabled, tapActions, tapShortcuts }
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        top = try values.decode(EdgeConfiguration.self, forKey: .top)
+        right = try values.decode(EdgeConfiguration.self, forKey: .right)
+        bottom = try values.decode(EdgeConfiguration.self, forKey: .bottom)
+        left = try values.decode(EdgeConfiguration.self, forKey: .left)
+        stripWidth = try values.decode(Double.self, forKey: .stripWidth)
+        hapticsEnabled = try values.decode(Bool.self, forKey: .hapticsEnabled)
+        tapActions = try values.decode(TapAssignments.self, forKey: .tapActions)
+        // Profile records predating shortcut actions had no per-point shortcut dictionary.
+        tapShortcuts = try values.contains(.tapShortcuts) ? values.decode([String: KeyboardShortcut].self, forKey: .tapShortcuts) : [:]
     }
 }

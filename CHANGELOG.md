@@ -2,6 +2,14 @@
 
 Release dates are shown in UTC. Download app archives and SHA256 checksums from the linked releases.
 
+## [2.5.0](https://github.com/ZeLebo/edgecontrol/releases/tag/v2.5) (2026-11-01)
+
+- Assign per-profile keyboard shortcuts to double-tap points and both directions of an edge slide.
+- Record combinations locally or choose F13 through F24 with Command, Option, Control, and Shift modifiers.
+- Use native key codes for F13 through F20 and explicitly marked, app-dependent function-character events for F21 through F24.
+- Preserve the click-suppression tail after a profile switch, even when the new recognizer receives empty frames.
+- Send paired key events with a short hold; release owned keys on cancellation and restore physical modifier flags. Pause gestures while editing modal settings.
+
 ## [2.4.0](https://github.com/ZeLebo/edgecontrol/releases/tag/v2.4) (2026-11-01)
 
 - Add native Launch at Login control in General Settings, using the actual macOS registration state.

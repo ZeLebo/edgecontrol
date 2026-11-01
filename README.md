@@ -1,6 +1,6 @@
 # EdgeControl
 
-Control volume, built-in display brightness, and media playback with one-finger gestures along the edges of your Mac's built-in trackpad. EdgeControl is a native Swift and AppKit menu bar app with no third-party dependencies.
+Control volume, display and keyboard brightness, media playback, and keyboard shortcuts with gestures along your Mac's built-in trackpad edges. EdgeControl is a native Swift and AppKit menu bar app with no third-party dependencies.
 
 [Download the latest release](https://github.com/ZeLebo/edgecontrol/releases/latest) · [Changelog](CHANGELOG.md)
 
@@ -34,7 +34,7 @@ Existing settings become the Everyday profile on update. The Media preset adds t
 
 ## Customize gestures
 
-Open **Settings** and select any of the four edges. Assign **Volume**, **Brightness**, **Keyboard Backlight**, **Track Navigation**, **Seek**, or **Disabled**. Edge width is adjustable from 3% to 15%.
+Open **Settings** and select any of the four edges. Assign **Volume**, **Brightness**, **Keyboard Backlight**, **Track Navigation**, **Seek**, **Keyboard Shortcut**, or **Disabled**. Edge width is adjustable from 3% to 15%.
 
 For volume, display brightness, and keyboard backlight, choose a mode separately for each edge:
 
@@ -54,6 +54,16 @@ There are eight points: four shared corners and the middle of each edge. A corne
 Click a point on the diagram or select it in the point picker. Choose **None**, **Mute / Unmute**, **Play / Pause**, **Previous Track**, **Next Track**, or a backward / forward 10-second skip. Purple points have an action assigned. Center points start unassigned.
 
 Keyboard Backlight also provides an On / Off tap action. It restores the last known nonzero level; if no previous level is known, it starts at 50%. System automatic brightness and idle dimming keep their existing settings.
+
+### Keyboard shortcuts
+
+Choose **Keyboard Shortcut** as an edge's Slide Action to assign separate shortcuts to Left / Down and Right / Up. Choose the same action for a double-tap point to assign its shortcut. Bindings belong to the selected profile; the global Profile Switch point remains shared.
+
+Click a shortcut button to record a key combination, or choose F13 through F24 and the Command, Option, Control, and Shift modifiers. Recording uses the focused field in the editor. Some system combinations are reserved by macOS.
+
+Configure the matching shortcut in the target application. A gesture sends one press and release through the macOS keyboard event stream; the receiving app decides how to handle it. F13 through F20 use native virtual key codes. F21 through F24 use function-character events and are app-dependent: some apps and global hotkey tools do not recognize them. The editor shows this compatibility note for those keys.
+
+For example, create a profile for your recorder, assign a recording hotkey to a corner, and switch to that profile with the shared Profile Switch point. A short HUD identifies the new profile.
 
 ### Visual and haptic feedback
 
@@ -83,7 +93,7 @@ Open **General…** in Settings to choose apps where gestures should pause. Excl
 
 Volume requires an audio output with writable system volume. Brightness controls the built-in display. External trackpads and external display brightness are outside the current scope. Media commands and seeking depend on the active player. Haptic feedback requires a supported actuator on the selected built-in trackpad; transport errors appear in the menu while the controls remain available.
 
-Background touch input, device-specific haptics, display brightness, and media commands use private Apple frameworks. A macOS update can change their behavior. No driver or background service is installed.
+Background touch input, device-specific haptics, display and keyboard brightness, and media commands use private Apple frameworks. A macOS update can change their behavior. No driver or background service is installed.
 
 ## Build from source
 

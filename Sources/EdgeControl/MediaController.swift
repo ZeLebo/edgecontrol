@@ -13,29 +13,39 @@ struct MediaRequest: Equatable {
         case .previousTrack: command = 5; interval = nil
         case .seekForward: command = 17; interval = 10
         case .seekBackward: command = 18; interval = 10
-        case .none, .mute, .nextProfile, .toggleKeyboardBacklight: throw MediaControlError("This action is not a media command")
+        case .none, .mute, .nextProfile, .toggleKeyboardBacklight, .shortcut: throw MediaControlError("This action is not a media command")
         }
     }
 }
 
-struct MediaMotion {
+struct DirectionalSlideMotion {
     private var distance = 0.0
     private var fired = false
 
-    mutating func consume(_ change: LevelChange, action: EdgeAction) throws -> TapAction? {
-        guard case let .relative(delta) = change, delta.isFinite,
-              action == .tracks || action == .seek else {
-            throw MediaControlError("Media gestures require finite relative movement")
+    mutating func consume(_ change: LevelChange) throws -> Bool? {
+        guard case let .relative(delta) = change, delta.isFinite else {
+            throw MediaControlError("Discrete gestures require finite relative movement")
         }
         guard !fired else { return nil }
         distance += delta
         guard abs(distance) >= 12 else { return nil }
         fired = true
-        if action == .tracks { return distance > 0 ? .nextTrack : .previousTrack }
-        return distance > 0 ? .seekForward : .seekBackward
+        return distance > 0
     }
-
     mutating func reset() { distance = 0; fired = false }
+}
+
+struct MediaMotion {
+    private var motion = DirectionalSlideMotion()
+    mutating func consume(_ change: LevelChange, action: EdgeAction) throws -> TapAction? {
+        guard action == .tracks || action == .seek else {
+            throw MediaControlError("This action is not a media gesture")
+        }
+        guard let forward = try motion.consume(change) else { return nil }
+        if action == .tracks { return forward ? .nextTrack : .previousTrack }
+        return forward ? .seekForward : .seekBackward
+    }
+    mutating func reset() { motion.reset() }
 }
 
 @MainActor

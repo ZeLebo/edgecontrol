@@ -17,6 +17,10 @@ final class SettingsWindow: NSObject {
     private let modePicker = NSPopUpButton()
     private let sensitivitySlider = NSSlider(value: 1, minValue: 0.25, maxValue: 3, target: nil, action: nil)
     private let sensitivityValue = NSTextField(labelWithString: "1x")
+    private let negativeShortcutButton = NSButton(title: "Left Shortcut…", target: nil, action: nil)
+    private let positiveShortcutButton = NSButton(title: "Right Shortcut…", target: nil, action: nil)
+    private let tapShortcutButton = NSButton(title: "Edit Shortcut…", target: nil, action: nil)
+    private let tapHelp = NSTextField(wrappingLabelWithString: "Select a point here or on the diagram. Each corner has one shared action.")
     private let tapTitle = NSTextField(labelWithString: "Bottom Left Double Tap")
     private let tapZonePicker = NSPopUpButton()
     private let tapPicker = NSPopUpButton()
@@ -127,16 +131,27 @@ final class SettingsWindow: NSObject {
         sensitivityValue.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
         sensitivityValue.alignment = .right
         content.addSubview(sensitivityValue)
+        for (button, y, selector) in [(negativeShortcutButton, 230, #selector(editNegativeShortcut)), (positiveShortcutButton, 196, #selector(editPositiveShortcut))] {
+            button.bezelStyle = .rounded
+            button.frame = NSRect(x: 24, y: y, width: 312, height: 30)
+            button.target = self
+            button.action = selector
+            content.addSubview(button)
+        }
 
         tapTitle.frame = NSRect(x: 374, y: 246, width: 342, height: 20)
         content.addSubview(tapTitle)
         configure(tapZonePicker, titles: TapZone.allCases.map(\.title), frame: NSRect(x: 374, y: 214, width: 342, height: 28), action: #selector(changeTapZone), accessibility: "Double-tap point", in: content)
         configure(tapPicker, titles: TapAction.configurableCases.map(\.title), frame: NSRect(x: 374, y: 178, width: 342, height: 28), action: #selector(changeTap), accessibility: "Double-tap action", in: content)
-        let tapHelp = NSTextField(wrappingLabelWithString: "Select a point here or on the diagram. Each corner has one shared action.")
         tapHelp.frame = NSRect(x: 374, y: 133, width: 342, height: 34)
         tapHelp.font = .systemFont(ofSize: 12)
         tapHelp.textColor = .secondaryLabelColor
         content.addSubview(tapHelp)
+        tapShortcutButton.bezelStyle = .rounded
+        tapShortcutButton.frame = NSRect(x: 374, y: 133, width: 342, height: 32)
+        tapShortcutButton.target = self
+        tapShortcutButton.action = #selector(editTapShortcut)
+        content.addSubview(tapShortcutButton)
 
         let divider = NSBox(frame: NSRect(x: 24, y: 115, width: 692, height: 1))
         divider.boxType = .separator
@@ -167,7 +182,7 @@ final class SettingsWindow: NSObject {
         reset.bezelStyle = .rounded
         reset.frame = NSRect(x: 548, y: 20, width: 172, height: 32)
         content.addSubview(reset)
-        let controls: [NSView] = [profilePicker] + profileButtons + [deleteProfileButton, globalSwitchPicker, edgeChooser, actionPicker, modePicker, sensitivitySlider, tapZonePicker, tapPicker, widthSlider, hapticsSwitch, general, reset]
+        let controls: [NSView] = [profilePicker] + profileButtons + [deleteProfileButton, globalSwitchPicker, edgeChooser, actionPicker, modePicker, sensitivitySlider, negativeShortcutButton, positiveShortcutButton, tapZonePicker, tapPicker, tapShortcutButton, widthSlider, hapticsSwitch, general, reset]
         for (current, next) in zip(controls, controls.dropFirst() + [controls[0]]) { current.nextKeyView = next }
         window.initialFirstResponder = profilePicker
     }
@@ -209,6 +224,11 @@ final class SettingsWindow: NSObject {
         sensitivitySlider.isEnabled = edge.action != .disabled && edge.effectiveMode == .relative
         sensitivityValue.stringValue = String(format: "%.2gx", edge.sensitivity)
         sensitivityValue.textColor = sensitivitySlider.isEnabled ? .labelColor : .tertiaryLabelColor
+        negativeShortcutButton.isHidden = edge.action != .shortcut
+        positiveShortcutButton.isHidden = edge.action != .shortcut
+        instruction.isHidden = edge.action == .shortcut
+        negativeShortcutButton.title = "\(selectedEdge.isHorizontal ? "Left" : "Down"): \(edge.negativeShortcut?.displayName ?? "Choose…")"
+        positiveShortcutButton.title = "\(selectedEdge.isHorizontal ? "Right" : "Up"): \(edge.positiveShortcut?.displayName ?? "Choose…")"
         tapPicker.removeAllItems()
         let reserved = store.profileSwitchZone == selectedTapZone
         if reserved { tapPicker.addItem(withTitle: "Next Profile (Global)") }
@@ -217,6 +237,10 @@ final class SettingsWindow: NSObject {
             tapPicker.selectItem(at: TapAction.configurableCases.firstIndex(of: settings[selectedTapZone]) ?? 0)
         }
         tapPicker.isEnabled = !reserved
+        let tapIsShortcut = !reserved && settings[selectedTapZone] == .shortcut
+        tapHelp.isHidden = tapIsShortcut
+        tapShortcutButton.isHidden = !tapIsShortcut
+        tapShortcutButton.title = settings.tapShortcuts[selectedTapZone.rawValue]?.displayName ?? "Edit Shortcut…"
         tapZonePicker.selectItem(at: TapZone.allCases.firstIndex(of: selectedTapZone) ?? 0)
         tapTitle.stringValue = "Double Tap"
         tapPicker.setAccessibilityLabel("\(selectedTapZone.title) double-tap action")
@@ -307,7 +331,13 @@ final class SettingsWindow: NSObject {
     }
     @objc private func changeAction() {
         guard EdgeAction.allCases.indices.contains(actionPicker.indexOfSelectedItem) else { return }
-        updateEdge { $0.action = EdgeAction.allCases[actionPicker.indexOfSelectedItem] }
+        updateEdge {
+            $0.action = EdgeAction.allCases[actionPicker.indexOfSelectedItem]
+            if $0.action == .shortcut {
+                if $0.negativeShortcut == nil { $0.negativeShortcut = KeyboardShortcut.functionKey(13) }
+                if $0.positiveShortcut == nil { $0.positiveShortcut = KeyboardShortcut.functionKey(14) }
+            }
+        }
     }
     @objc private func changeMode() {
         guard AdjustmentMode.allCases.indices.contains(modePicker.indexOfSelectedItem) else { return }
@@ -323,6 +353,30 @@ final class SettingsWindow: NSObject {
         guard TapAction.configurableCases.indices.contains(tapPicker.indexOfSelectedItem) else { return }
         var settings = store.settings
         settings[selectedTapZone] = TapAction.configurableCases[tapPicker.indexOfSelectedItem]
+        if settings[selectedTapZone] == .shortcut, settings.tapShortcuts[selectedTapZone.rawValue] == nil {
+            settings.tapShortcuts[selectedTapZone.rawValue] = KeyboardShortcut.functionKey(13)
+        }
+        save(settings)
+    }
+    @objc private func editNegativeShortcut() { editSlideShortcut(positive: false) }
+    @objc private func editPositiveShortcut() { editSlideShortcut(positive: true) }
+    private func editSlideShortcut(positive: Bool) {
+        let profileID = store.activeProfileID
+        let edge = selectedEdge
+        let initial = (positive ? store.settings[edge].positiveShortcut : store.settings[edge].negativeShortcut) ?? KeyboardShortcut.functionKey(positive ? 14 : 13)!
+        guard let value = KeyboardShortcutEditor.choose(initial: initial, title: positive ? "Right / Up Shortcut" : "Left / Down Shortcut"), store.activeProfileID == profileID else { return }
+        var settings = store.settings
+        if positive { settings[edge].positiveShortcut = value } else { settings[edge].negativeShortcut = value }
+        save(settings)
+    }
+    @objc private func editTapShortcut() {
+        let profileID = store.activeProfileID
+        let zone = selectedTapZone
+        guard store.profileSwitchZone != zone else { return }
+        let initial = store.settings.tapShortcuts[zone.rawValue] ?? KeyboardShortcut.functionKey(13)!
+        guard let value = KeyboardShortcutEditor.choose(initial: initial, title: "\(zone.title) Shortcut"), store.activeProfileID == profileID else { return }
+        var settings = store.settings
+        settings.tapShortcuts[zone.rawValue] = value
         save(settings)
     }
     @objc private func changeWidth() { var value = store.settings; value.stripWidth = widthSlider.doubleValue.rounded() / 100; save(value) }
@@ -423,7 +477,7 @@ private final class TrackpadDiagramView: NSView {
         case .volume: .systemBlue
         case .brightness: .systemOrange
         case .keyboardBrightness: .systemTeal
-        case .tracks, .seek: .systemPurple
+        case .tracks, .seek, .shortcut: .systemPurple
         case .disabled: .quaternaryLabelColor
         }
     }

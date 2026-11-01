@@ -1,5 +1,6 @@
 import AppKit
 import Darwin
+import ServiceManagement
 
 @main
 enum EdgeControlMain {
@@ -35,20 +36,34 @@ enum EdgeControlMain {
         app.setActivationPolicy(.prohibited)
         let domain = "local.edgecontrol.preview.\(UUID().uuidString)"
         guard let defaults = UserDefaults(suiteName: domain) else { throw CocoaError(.fileWriteUnknown) }
-        defer { defaults.removePersistentDomain(forName: domain) }
+        let shortcutDomain = domain + ".shortcuts"
+        guard let shortcutDefaults = UserDefaults(suiteName: shortcutDomain) else { throw CocoaError(.fileWriteUnknown) }
+        defer { defaults.removePersistentDomain(forName: domain); shortcutDefaults.removePersistentDomain(forName: shortcutDomain) }
         let window = SettingsWindow(store: SettingsStore(defaults: defaults, previousDefaults: nil))
         let hud = LevelHUD()
-        let general = GeneralSettingsWindow(store: SettingsStore(defaults: defaults, previousDefaults: nil))
+        let general = GeneralSettingsWindow(store: SettingsStore(defaults: defaults, previousDefaults: nil), launchAtLogin: LaunchAtLogin(service: PreviewLoginItemService()))
+        let shortcutStore = SettingsStore(defaults: shortcutDefaults, previousDefaults: nil)
+        try shortcutStore.renameProfile(id: shortcutStore.activeProfileID, to: "Recorder")
+        var bindings = shortcutStore.settings
+        bindings.bottom = EdgeConfiguration(action: .shortcut, negativeShortcut: KeyboardShortcut.functionKey(13, modifiers: .control), positiveShortcut: KeyboardShortcut.functionKey(14, modifiers: .control))
+        bindings[TapZone.bottomLeft] = .shortcut
+        bindings.tapShortcuts[TapZone.bottomLeft.rawValue] = KeyboardShortcut.functionKey(23, modifiers: [.control, .option])
+        try shortcutStore.update(bindings)
+        try shortcutStore.setProfileSwitchZone(.topLeft)
+        let shortcutWindow = SettingsWindow(store: shortcutStore)
         for (name, appearance) in [("light", NSAppearance.Name.aqua), ("dark", .darkAqua)] {
             app.appearance = NSAppearance(named: appearance)
             try general.renderPreview(to: directory.appendingPathComponent("general-\(name).png"), appearance: appearance)
             try window.renderPreview(to: directory.appendingPathComponent("settings-\(name).png"), appearance: appearance)
+            try shortcutWindow.renderPreview(to: directory.appendingPathComponent("settings-shortcuts-\(name).png"), appearance: appearance)
+            try KeyboardShortcutEditor.renderPreview(to: directory.appendingPathComponent("shortcut-editor-\(name).png"), initial: KeyboardShortcut.functionKey(23, modifiers: [.control, .option])!, appearance: appearance)
             try hud.renderPreview(to: directory.appendingPathComponent("profile-\(name).png"), appearance: appearance, profileName: "Everyday")
-            for action in [EdgeAction.volume, .brightness, .keyboardBrightness, .tracks, .seek] {
+            for action in [EdgeAction.volume, .brightness, .keyboardBrightness, .tracks, .seek, .shortcut] {
                 try hud.renderPreview(to: directory.appendingPathComponent("\(action.rawValue)-\(name).png"),
                                       action: action, appearance: appearance)
             }
         }
+        shortcutWindow.close()
         general.close()
         window.close()
         print("Previews saved: \(directory.path)")
@@ -65,6 +80,9 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private let exclusions = ApplicationExclusions()
     private var isExcluded = false
     private let media = MediaController()
+    private let shortcutOutput = KeyboardShortcutOutput()
+    private var shortcutMotion = DirectionalSlideMotion()
+    private var shortcutError: String?
     private let settings = SettingsStore()
     private let hud = LevelHUD()
     private let haptics = HapticFeedback()
@@ -75,7 +93,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private var settingsWindow: SettingsWindow?
     private var activeAction: EdgeAction?
     private var lastAppliedLevel: Int?
-    private var clickSuppressionUntil: Double?
+    private var clickSuppression = TapClickSuppression()
     private var controlErrors: [EdgeAction: String] = [:]
     private var menu: StatusMenu?
     private let diagnostic: Bool
@@ -99,6 +117,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             onOpenSettings: { [weak self] in self?.openSettings() },
             onSelectProfile: { [weak self] id in self?.selectProfile(id) }
         )
+        shortcutOutput.onError = { [weak self] message in self?.shortcutError = message; self?.updateMenu() }
         input.onFrame = { [weak self] frame in self?.handle(frame) }
         input.onError = { [weak self] message in self?.fail(message) }
         cursor.onError = { [weak self] message in self?.fail(message) }
@@ -153,21 +172,27 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         } catch { fail(error.localizedDescription) }
     }
 
-    private func resetInput() {
-        acceptedAfter = .infinity
+    private func resetRecognition() {
         gesture.reset()
         taps.reset()
         level.reset()
         mediaMotion.reset()
+        shortcutMotion.reset()
         haptics.reset()
+        shortcutOutput.cancel()
         cursor.releaseAll()
-        do { try haptics.stop() }
-        catch { hapticError = "Haptics: \(error.localizedDescription)" }
-        input.stop()
         hud.hide()
         activeAction = nil
         lastAppliedLevel = nil
-        clickSuppressionUntil = nil
+        clickSuppression.reset()
+    }
+
+    private func resetInput() {
+        acceptedAfter = .infinity
+        resetRecognition()
+        do { try haptics.stop() }
+        catch { hapticError = "Haptics: \(error.localizedDescription)" }
+        input.stop()
         lastFrameAt = nil
     }
 
@@ -205,17 +230,24 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             return
         }
         lastFrameAt = now
-        let update = gesture.process(frame, settings: settings.gestureSettings, precision: CGEventSource.flagsState(.combinedSessionState).contains(.maskShift))
+        if NSApplication.shared.modalWindow != nil {
+            resetRecognition()
+            return
+        }
+        let update = gesture.process(frame, settings: settings.gestureSettings, precision: CGEventSource.flagsState(.hidSystemState).contains(.maskShift))
         let tap = taps.process(frame, settings: settings.gestureSettings, sliding: update.isActive)
-        clickSuppressionUntil = tap.suppressionUntil
-        cursor.setClickSuppression(tap.suppressClicks && (tap.suppressionUntil.map { $0 > now } ?? false))
+        cursor.setClickSuppression(clickSuppression.update(tap, at: now))
         do {
             if let command = tap.command {
-                try perform(command.action)
+                try perform(command.action, shortcut: settings.settings.tapShortcuts[command.zone.rawValue])
                 if command.action == .nextProfile {
+                    if !diagnostic, input.isRunning {
+                        // The command witnessed full lift; arm the new recognizers with that same frame.
+                        _ = gesture.process(frame, settings: settings.gestureSettings)
+                        _ = taps.process(frame, settings: settings.gestureSettings, sliding: false)
+                    }
                     // Profile changes reset recognition, but the native tap-to-click tail is still reserved.
-                    clickSuppressionUntil = tap.suppressionUntil
-                    cursor.setClickSuppression(tap.suppressionUntil.map { $0 > ProcessInfo.processInfo.systemUptime } ?? false)
+                    cursor.setClickSuppression(clickSuppression.preserveProfileTail(until: tap.suppressionUntil, at: ProcessInfo.processInfo.systemUptime))
                     return
                 }
             }
@@ -228,14 +260,15 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
                     lastAppliedLevel = nil
                     level.reset()
                     mediaMotion.reset()
+                    shortcutMotion.reset()
                 }
-            case let .active(_, action, change):
+            case let .active(edge, action, change):
                 if activeAction == nil {
                     let relative: Bool
                     if case .relative = change { relative = true } else { relative = false }
                     try begin(action, relative: relative)
                 }
-                if let change { try apply(change, action: action) }
+                if let change { try apply(change, action: action, configuration: settings.settings[edge]) }
             }
         } catch { fail(error.localizedDescription); return }
         if diagnostic, now - lastDiagnosticAt >= 0.1 {
@@ -250,6 +283,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private func begin(_ action: EdgeAction, relative: Bool) throws {
         level.reset()
         mediaMotion.reset()
+        shortcutMotion.reset()
         haptics.reset()
         lastAppliedLevel = nil
         if !diagnostic {
@@ -257,7 +291,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             case .volume: try audio.refresh()
             case .brightness: try brightness.refresh()
             case .keyboardBrightness: try keyboard.refresh()
-            case .tracks, .seek: break
+            case .tracks, .seek, .shortcut: break
             case .disabled: throw ApplicationControlError("This edge is disabled")
             }
             if action.isLevel, relative {
@@ -275,7 +309,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         activeAction = action
     }
 
-    private func apply(_ change: LevelChange, action: EdgeAction) throws {
+    private func apply(_ change: LevelChange, action: EdgeAction, configuration: EdgeConfiguration) throws {
         if diagnostic {
             switch change {
             case .absolute(let percent): hud.show(action: action, percent: percent, diagnostic: true)
@@ -301,12 +335,16 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
             updateMenu()
             hud.show(action: action, percent: percent)
             emitHaptic { try haptics.levelChanged(to: percent, enabled: settings.settings.hapticsEnabled) }
+        } else if action == .shortcut {
+            if let positive = try shortcutMotion.consume(change) {
+                try perform(.shortcut, shortcut: positive ? configuration.positiveShortcut : configuration.negativeShortcut)
+            }
         } else if let command = try mediaMotion.consume(change, action: action) {
             try perform(command)
         }
     }
 
-    private func perform(_ action: TapAction) throws {
+    private func perform(_ action: TapAction, shortcut: KeyboardShortcut? = nil) throws {
         guard action != .none else { return }
         if diagnostic {
             print("action=\(action.rawValue); no command requested")
@@ -315,6 +353,11 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         }
         if action == .nextProfile {
             try settings.nextProfile()
+        } else if action == .shortcut {
+            guard let shortcut else { throw ApplicationControlError("Choose a keyboard shortcut in Settings") }
+            guard try shortcutOutput.send(shortcut) else { return }
+            shortcutError = nil
+            hud.showSymbol("command.square", accessibilityLabel: shortcut.displayName)
         } else if action == .toggleKeyboardBacklight {
             try keyboard.refresh()
             let isOn = try keyboard.toggle()
@@ -343,10 +386,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
 
     @objc private func checkInput() {
         let now = ProcessInfo.processInfo.systemUptime
-        if let deadline = clickSuppressionUntil, now >= deadline {
-            cursor.setClickSuppression(false)
-            clickSuppressionUntil = nil
-        }
+        cursor.setClickSuppression(clickSuppression.advance(to: now))
         if cursor.isCaptured, let lastFrameAt, now - lastFrameAt >= 0.5 {
             fail("Trackpad signal was lost; resume to retry")
         }
@@ -388,7 +428,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         let warning = unavailable.flatMap { action in controlErrors[action].map { "\(action.title): \($0)" } }
         let feedbackWarning = settings.settings.hapticsEnabled ? hapticError : nil
         let status = errorMessage ?? (!suspensions.isEmpty ? "Session suspended" :
-            (isPaused ? "Paused" : (isExcluded ? "Paused for this app" : (diagnostic ? "Diagnostic: outputs unchanged" : (warning ?? feedbackWarning ?? "Ready")))))
+            (isPaused ? "Paused" : (isExcluded ? "Paused for this app" : (diagnostic ? "Diagnostic: outputs unchanged" : (warning ?? shortcutError ?? feedbackWarning ?? "Ready")))))
         menu?.updateProfiles(settings.profiles, activeID: settings.activeProfileID)
         menu?.update(status: status, isPaused: isPaused, needsPermission: !CursorCapture.hasPermission)
     }
@@ -421,4 +461,11 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
 private struct ApplicationControlError: LocalizedError {
     let errorDescription: String?
     init(_ message: String) { errorDescription = message }
+}
+
+@MainActor
+private final class PreviewLoginItemService: LoginItemService {
+    var status: SMAppService.Status { .notRegistered }
+    func register() throws { throw ApplicationControlError("Preview mode does not change Login Items") }
+    func unregister() throws { throw ApplicationControlError("Preview mode does not change Login Items") }
 }

@@ -2,7 +2,7 @@ import AppKit
 import UniformTypeIdentifiers
 
 @MainActor
-final class GeneralSettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate {
+final class GeneralSettingsWindow: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSWindowDelegate {
     private let store: SettingsStore
     private let launchAtLogin: LaunchAtLogin
     private let loginSwitch = NSButton(checkboxWithTitle: "Launch at Login", target: nil, action: nil)
@@ -18,6 +18,7 @@ final class GeneralSettingsWindow: NSObject, NSTableViewDataSource, NSTableViewD
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 360),
                           styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
         super.init()
+        window.delegate = self
         window.title = "EdgeControl General Settings"
         window.isReleasedWhenClosed = false
         window.center()
@@ -32,6 +33,7 @@ final class GeneralSettingsWindow: NSObject, NSTableViewDataSource, NSTableViewD
     }
 
     func close() { window.close() }
+    func windowDidBecomeKey(_ notification: Notification) { refreshControls() }
 
     func renderPreview(to url: URL, appearance: NSAppearance.Name = .aqua) throws {
         guard let content = window.contentView else { throw GeneralPreviewError() }
