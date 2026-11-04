@@ -66,7 +66,7 @@ struct SettingsStoreTests {
             var notifications = 0
             store.onChange = { _ in notifications += 1 }
             var invalidValues: [EdgeSettings] = []
-            for width in [0.02, 0.16, Double.nan, Double.infinity] {
+            for width in [0.009999, 0.16, Double.nan, Double.infinity] {
                 var invalid = EdgeSettings.defaults
                 invalid.stripWidth = width
                 invalidValues.append(invalid)
@@ -94,7 +94,7 @@ struct SettingsStoreTests {
             defaults.set(previous, forKey: SettingsStore.edgeStorageKey)
             defaults.set(flat, forKey: SettingsStore.flatStorageKey)
             var invalid = EdgeSettings.defaults
-            invalid.stripWidth = 0.01
+            invalid.stripWidth = 0.009999
             let records: [Any] = ["wrong-type", Data("{bad json".utf8), try profileRecord(settings: invalid)]
             for record in records {
                 defaults.set(record, forKey: SettingsStore.storageKey)
@@ -116,7 +116,7 @@ struct SettingsStoreTests {
         try withDefaults { defaults in
             let store = SettingsStore(defaults: defaults, previousDefaults: nil)
             var settings = EdgeSettings.defaults
-            settings.stripWidth = 0.03
+            settings.stripWidth = 0.01
             settings.bottom = EdgeConfiguration(action: .disabled)
             settings[.bottomLeft] = .none
             settings[.topCenter] = .playPause
@@ -178,7 +178,7 @@ struct SettingsStoreTests {
             try withDefaults { previous in
                 let oldValid = try flatRecord(bottom: "volume")
                 previous.set(oldValid, forKey: SettingsStore.legacyStorageKey)
-                for record in [try flatRecord(bottom: "unsupported"), try flatRecord(bottom: "volume", width: 0.01)] {
+                for record in [try flatRecord(bottom: "unsupported"), try flatRecord(bottom: "volume", width: 0.009999)] {
                     defaults.set(record, forKey: SettingsStore.flatStorageKey)
                     let store = SettingsStore(defaults: defaults, previousDefaults: previous)
                     #expect(store.loadError != nil)
@@ -596,7 +596,7 @@ struct SettingsStoreTests {
                 variants.append(value)
             }
             value = valid
-            value.profiles[0].settings.stripWidth = 0.01
+            value.profiles[0].settings.stripWidth = 0.009999
             variants.append(value)
             value = valid
             value.profiles[0].settings[.topCenter] = .nextProfile

@@ -15,12 +15,12 @@ private struct Input {
         send([TrackpadContact(id: id, x: x, y: y)])
     }
 
-    mutating func along(_ edge: TrackpadEdge, at value: Double) -> GestureUpdate {
+    mutating func along(_ edge: TrackpadEdge, at value: Double, inset: Double = 0.02) -> GestureUpdate {
         switch edge {
-        case .top: finger(value, y: 0.98)
-        case .right: finger(0.98, y: value)
-        case .bottom: finger(value)
-        case .left: finger(0.02, y: value)
+        case .top: finger(value, y: 1 - inset)
+        case .right: finger(1 - inset, y: value)
+        case .bottom: finger(value, y: inset)
+        case .left: finger(inset, y: value)
         }
     }
 
@@ -231,29 +231,30 @@ struct EdgeGestureTests {
         #expect(input.finger(0.96, y: 0.04) == level(99))
     }
 
-    @Test func configuredWidthControlsAllFourStripBoundaries() {
+    @Test(arguments: [0.01, 0.15])
+    func configuredWidthControlsAllFourStripBoundaries(_ width: Double) {
         for edge in TrackpadEdge.allCases {
             var input = Input()
-            input.settings = allVolumeSettings(width: 0.15)
+            input.settings = allVolumeSettings(width: width)
             #expect(input.send([]) == .inactive)
-            switch edge {
-            case .bottom:
-                #expect(input.finger(0.2, y: 0.15) == .inactive)
-                #expect(input.finger(0.5, y: 0.15) == level(50, edge: edge))
-                #expect(input.finger(0.6, y: 0.150001) == .inactive)
-            case .top:
-                #expect(input.finger(0.2, y: 0.85) == .inactive)
-                #expect(input.finger(0.5, y: 0.85) == level(50, edge: edge))
-                #expect(input.finger(0.6, y: 0.849999) == .inactive)
-            case .left:
-                #expect(input.finger(0.15, y: 0.2) == .inactive)
-                #expect(input.finger(0.15, y: 0.5) == level(50, edge: edge))
-                #expect(input.finger(0.150001, y: 0.6) == .inactive)
-            case .right:
-                #expect(input.finger(0.85, y: 0.2) == .inactive)
-                #expect(input.finger(0.85, y: 0.5) == level(50, edge: edge))
-                #expect(input.finger(0.849999, y: 0.6) == .inactive)
-            }
+            #expect(input.along(edge, at: 0.2, inset: width) == .inactive)
+            #expect(input.along(edge, at: 0.5, inset: width) == level(50, edge: edge))
+            #expect(input.along(edge, at: 0.6, inset: width + 0.000001) == .inactive)
+            #expect(input.along(edge, at: 0.7, inset: width) == .inactive)
+        }
+    }
+
+    @Test func onePercentStripsIgnoreOutsideStartsUntilFullLift() {
+        for edge in TrackpadEdge.allCases {
+            var input = Input()
+            input.settings = allVolumeSettings(width: 0.01)
+            #expect(input.send([]) == .inactive)
+            #expect(input.along(edge, at: 0.2, inset: 0.010001) == .inactive)
+            #expect(input.along(edge, at: 0.5, inset: 0.010001) == .inactive)
+            #expect(input.along(edge, at: 0.6, inset: 0.005) == .inactive)
+            #expect(input.send([]) == .inactive)
+            #expect(input.along(edge, at: 0.2, inset: 0.005) == .inactive)
+            #expect(input.along(edge, at: 0.5, inset: 0.005) == level(50, edge: edge))
         }
     }
 
@@ -271,7 +272,7 @@ struct EdgeGestureTests {
     }
 
     @Test func invalidSettingsNeverActivate() {
-        for width in [0.0, 0.029999, 0.150001, Double.nan, Double.infinity] {
+        for width in [0.0, 0.009999, 0.150001, Double.nan, Double.infinity] {
             var input = Input()
             input.settings.stripWidth = width
             #expect(input.send([]) == .inactive)

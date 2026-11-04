@@ -34,7 +34,7 @@ Existing settings become the Everyday profile on update. The Media preset adds t
 
 ## Customize gestures
 
-Open **Settings** and select any of the four edges. Assign **Volume**, **Brightness**, **Keyboard Backlight**, **Track Navigation**, **Seek**, **Keyboard Shortcut**, or **Disabled**. Edge width is adjustable from 3% to 15%.
+Open **Settings** and select any of the four edges. Assign **Volume**, **Brightness**, **Keyboard Backlight**, **Track Navigation**, **Seek**, **Keyboard Shortcut**, or **Disabled**. Edge width is adjustable from 1% to 15%.
 
 For volume, display brightness, and keyboard backlight, choose a mode separately for each edge:
 

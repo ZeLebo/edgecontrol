@@ -24,7 +24,10 @@ final class SettingsWindow: NSObject {
     private let tapTitle = NSTextField(labelWithString: "Bottom Left Double Tap")
     private let tapZonePicker = NSPopUpButton()
     private let tapPicker = NSPopUpButton()
-    private let widthSlider = NSSlider(value: 5, minValue: 3, maxValue: 15, target: nil, action: nil)
+    private let widthSlider = NSSlider(value: EdgeSettings.defaults.stripWidth * 100,
+                                       minValue: EdgeSettings.allowedStripWidths.lowerBound * 100,
+                                       maxValue: EdgeSettings.allowedStripWidths.upperBound * 100,
+                                       target: nil, action: nil)
     private let widthValue = NSTextField(labelWithString: "5%")
     private let hapticsSwitch = NSButton(checkboxWithTitle: "Haptic Feedback", target: nil, action: nil)
     private let instruction = NSTextField(wrappingLabelWithString: "")
@@ -158,7 +161,7 @@ final class SettingsWindow: NSObject {
         content.addSubview(divider)
         label("Edge Width", at: NSRect(x: 24, y: 78, width: 112, height: 22), in: content)
         widthSlider.frame = NSRect(x: 140, y: 74, width: 310, height: 28)
-        widthSlider.numberOfTickMarks = 13
+        widthSlider.numberOfTickMarks = Int(widthSlider.maxValue - widthSlider.minValue) + 1
         widthSlider.allowsTickMarkValuesOnly = true
         widthSlider.isContinuous = true
         widthSlider.target = self

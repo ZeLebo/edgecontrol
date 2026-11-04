@@ -45,16 +45,19 @@ struct DoubleTapGestureTests {
         #expect(input.tap(id: 4).command?.action == .mute)
     }
 
-    @Test func allEightZonesWorkWithSlidingDisabled() {
+    @Test(arguments: [0.01, 0.05])
+    func allEightZonesWorkWithSlidingDisabled(_ width: Double) {
         #expect(TapZone.allCases.count == 8)
         for zone in TapZone.allCases {
             var input = TapInput()
             input.settings = emptySettings()
+            input.settings.stripWidth = width
             input.settings[zone] = .playPause
             input.ready()
             let point = zone.position
-            let x = max(0.02, min(0.98, point.x))
-            let y = max(0.02, min(0.98, point.y))
+            let inset = width / 2
+            let x = max(inset, min(1 - inset, point.x))
+            let y = max(inset, min(1 - inset, point.y))
             #expect(input.tap(x, y: y).command == nil)
             #expect(input.tap(x, y: y, id: 2).command == TapCommand(zone: zone, action: .playPause))
         }

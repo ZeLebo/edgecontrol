@@ -169,7 +169,7 @@ struct EdgeSettings: Codable, Equatable, Sendable {
     var tapActions = TapAssignments()
     var tapShortcuts: [String: KeyboardShortcut] = [:]
     static let defaults = EdgeSettings()
-    static let allowedStripWidths = 0.03...0.15
+    static let allowedStripWidths = 0.01...0.15
     var isValid: Bool {
         stripWidth.isFinite && Self.allowedStripWidths.contains(stripWidth) &&
             TrackpadEdge.allCases.allSatisfy { self[$0].isValid } &&

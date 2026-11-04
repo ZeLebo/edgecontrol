@@ -275,7 +275,7 @@ private enum SettingsStoreError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidRecord: "The saved profiles are invalid."
-        case .invalidValues: "Edge width must be 3% to 15% and sensitivity must be 0.25x to 3x."
+        case .invalidValues: "Edge width must be 1% to 15% and sensitivity must be 0.25x to 3x."
         case .globalSwitchOnly: "Assign Next Profile with the global profile switch point."
         case .profileNotFound: "The selected profile no longer exists."
         case .lastProfile: "Keep at least one profile."
