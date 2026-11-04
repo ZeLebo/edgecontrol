@@ -2,6 +2,10 @@
 
 Release dates are shown in UTC. Download app archives and SHA256 checksums from the linked releases.
 
+## [2.5.1](https://github.com/ZeLebo/edgecontrol/releases/tag/v2.5.1) (2026-11-04)
+
+- Keep gestures running when the audio output cannot control volume or mute. Show the audio error in the menu, release the cursor, and allow a new gesture to use a supported output after a device switch.
+
 ## [2.5.0](https://github.com/ZeLebo/edgecontrol/releases/tag/v2.5) (2026-11-01)
 
 - Assign per-profile keyboard shortcuts to double-tap points and both directions of an edge slide.

@@ -93,6 +93,8 @@ Open **General…** in Settings to choose apps where gestures should pause. Excl
 
 Volume requires an audio output with writable system volume. Brightness controls the built-in display. External trackpads and external display brightness are outside the current scope. Media commands and seeking depend on the active player. Haptic feedback requires a supported actuator on the selected built-in trackpad; transport errors appear in the menu while the controls remain available.
 
+An unavailable volume or mute control cancels only that audio gesture. Other gestures keep working. Switching to a supported audio output restores volume control on a new gesture without manually resuming or restarting the app.
+
 Background touch input, device-specific haptics, display and keyboard brightness, and media commands use private Apple frameworks. A macOS update can change their behavior. No driver or background service is installed.
 
 ## Build from source

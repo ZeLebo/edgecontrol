@@ -83,7 +83,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private let shortcutOutput = KeyboardShortcutOutput()
     private var shortcutMotion = DirectionalSlideMotion()
     private var shortcutError: String?
-    private let settings = SettingsStore()
+    private let settings: SettingsStore
     private let hud = LevelHUD()
     private let haptics = HapticFeedback()
     private var gesture = EdgeGesture()
@@ -94,10 +94,10 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private var activeAction: EdgeAction?
     private var lastAppliedLevel: Int?
     private var clickSuppression = TapClickSuppression()
-    private var controlErrors: [EdgeAction: String] = [:]
+    private(set) var controlErrors: [EdgeAction: String] = [:]
     private var menu: StatusMenu?
     private let diagnostic: Bool
-    private var isPaused = false
+    private(set) var isPaused = false
     private var errorMessage: String?
     private var hapticError: String?
     private var lastProfileID: UUID?
@@ -107,7 +107,10 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
     private var lastDiagnosticAt = 0.0
     private var watchdog: Timer?
 
-    init(diagnostic: Bool) { self.diagnostic = diagnostic }
+    init(diagnostic: Bool, settings: SettingsStore = SettingsStore()) {
+        self.diagnostic = diagnostic
+        self.settings = settings
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         menu = StatusMenu(
@@ -270,7 +273,7 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
                 }
                 if let change { try apply(change, action: action, configuration: settings.settings[edge]) }
             }
-        } catch { fail(error.localizedDescription); return }
+        } catch { handleGestureError(error); return }
         if diagnostic, now - lastDiagnosticAt >= 0.1 {
             let positions = frame.contacts.map {
                 String(format: "id=%d x=%.4f y=%.4f", $0.id, $0.x, $0.y)
@@ -413,6 +416,17 @@ final class ApplicationController: NSObject, NSApplicationDelegate {
         errorMessage = message
         updateMenu()
         if diagnostic { print("error: \(message)") }
+    }
+
+    func handleGestureError(_ error: any Error) {
+        guard error is AudioOutputError else { fail(error.localizedDescription); return }
+        // Cancel only this slide; keep input, device observation and tap click deadlines alive.
+        gesture.reset()
+        cursor.release()
+        hud.hide()
+        activeAction = nil
+        controlErrors[.volume] = error.localizedDescription
+        updateMenu()
     }
 
     private func requestPermission() {
